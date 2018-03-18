@@ -1,69 +1,11 @@
-#include <AssetTracker.h>
-
-int transmittingData = 0;
-long lastPublish = 0;
-int delayMinutes = 60;
-
-AssetTracker t = AssetTracker();
-FuelGauge fuel;
-
 void setup() {
-    t.begin();
-    t.gpsOn();
-
-    Serial.begin(9600);
-
-    Particle.function("tmode", transmitMode);
-    Particle.function("batt", batteryStatus);
-    Particle.function("gps", gpsPublish);
     Particle.function("testdata", testData);
 }
 
 void loop() {
-    t.updateGPS();
-
-    if (millis()-lastPublish > delayMinutes*60*1000) {
-        lastPublish = millis();
-        Serial.println(t.preNMEA());
-
-        if (t.gpsFix()) {
-            if (transmittingData) {
-                Particle.publish("G", t.readLatLon(), 60, PRIVATE);
-            }
-            Serial.println(t.readLatLon());
-        }
-    }
-}
-
-int transmitMode(String command) {
-    transmittingData = atoi(command);
-    return 1;
-}
-
-int gpsPublish(String command) {
-    if (t.gpsFix()) {
-        Particle.publish("G", t.readLatLon(), 60, PRIVATE);
-        return 1;
-    } else {
-      return 0;
-    }
-}
-
-int batteryStatus(String command){
-    Particle.publish("B",
-          "v:" + String::format("%.2f",fuel.getVCell()) +
-          ",c:" + String::format("%.2f",fuel.getSoC()),
-          60, PRIVATE
-    );
-
-    if (fuel.getSoC()>10){
-      return 1;
-    } else {
-      return 0;
-    }
 }
 
 int testData(String command){
-  Particle.publish("T",String::format("%d",random(3,10)));
+  Particle.publish("D",String::format("t%d T%d D%d",Time.now(),random(80,95),random(1000,60000)));
   return 0;
 }

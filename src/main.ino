@@ -1,8 +1,8 @@
 #include <AssetTracker.h>
 
-int transmittingData = 1;
+int transmittingData = 0;
 long lastPublish = 0;
-int delayMinutes = 10;
+int delayMinutes = 60;
 
 AssetTracker t = AssetTracker();
 FuelGauge fuel;
@@ -16,6 +16,7 @@ void setup() {
     Particle.function("tmode", transmitMode);
     Particle.function("batt", batteryStatus);
     Particle.function("gps", gpsPublish);
+    Particle.function("testdata", testData);
 }
 
 void loop() {
@@ -60,4 +61,9 @@ int batteryStatus(String command){
     } else {
       return 0;
     }
+}
+
+int testData(String command){
+  Particle.publish("T",String::format("%d",random(3,10)));
+  return 0;
 }

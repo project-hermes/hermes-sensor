@@ -1,0 +1,13 @@
+sudo: required
+
+install:
+  - sudo apt-get update
+  - sudo apt-get install expect
+  - npm install -g particle-cli
+
+script:
+  - ./particle-cli-login.sh $email $pass
+  - particle compile photon firmware/
+  
+notifications:
+  email: false

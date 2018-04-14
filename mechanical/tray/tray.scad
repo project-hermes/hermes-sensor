@@ -2,6 +2,8 @@
 // May be used under the terms of the MIT license found at
 // https://github.com/project-hermes/hermes-sensor/blob/master/LICENSE
 
+slop = 0.5; // loose interference fit
+sl = slop/2; // for distributing slop over two parts
 d = inches(3); // ID of container
 l = 120;
 shell = 3; // default thickness of printed parts
@@ -59,7 +61,7 @@ module tray() {
                [x_off, d-y_off, 90+45],
                [l-x_off, y_off, -45],
                [l-x_off, d-y_off, 45]];
-    corners = [[-e, e],
+    corners = [[-e, -e],
                [-e, d-shell+e],
                [l-shell+e, -e],
                [l-shell+e, d-shell+e]];
@@ -97,12 +99,12 @@ module tray() {
 module bracelet() {
     $fn = 180;
     difference() {
-        cylinder(d=d, h=2*shell);
+        cylinder(d=d-slop, h=2*shell+slop);
         union() {
             translate([0, 0, -e])
-                cylinder(d=(d-2*shell), h=2*shell+2*e);
-            translate([-d/2, -shell/2, shell])
-                cube([d, shell, shell+e]);
+                cylinder(d=(d-slop-2*shell), h=2*shell+2*e+slop);
+            translate([-d/2, -(shell/2 + sl), shell-slop])
+                cube([d, shell+slop, shell+e+2*slop]);
         }
     }
 }

@@ -5,8 +5,20 @@
 slop = 0.5; // loose interference fit
 sl = slop/2; // for distributing slop over two parts
 d = inches(3); // ID of container
-l = 120;
+cd = 62; // ID of caps
+l = 120; // overall support length, must be less than 124
+al = 90; // length of acrylic section
+bl = 25; // inset into bottom cap
+tl = al+bl; // offset for top cap (l-tl <= 7)
 shell = 3; // default thickness of printed parts
+
+// the case acrylic is 132mm long
+// the caps extend 21mm into the acrylic
+// this leaves 132-21*2 = 90mm max at diameter d
+// inside the caps there is 27mm at diameter cd
+// the bottom cap has no protrusions
+// the top cap has 7mm of usable space below hardware
+// this gives 90+7+27 = 124 max length
 
 board_l = inches(4.06);
 board_w = inches(1.42);
@@ -61,38 +73,49 @@ module tray() {
                [x_off, d-y_off, 90+45],
                [l-x_off, y_off, -45],
                [l-x_off, d-y_off, 45]];
-    corners = [[-e, -e],
-               [-e, d-shell+e],
-               [l-shell+e, -e],
-               [l-shell+e, d-shell+e]];
-    difference() {
-        union() {
-            // base plate
-            cube([l, d, shell]);
-            // clip standoffs
-            for(p=centers) {
-                x = p[0];
-                y = p[1];
-                r = p[2];
-                standoff(x, y, shell, r);
+    corners = [[bl-e, -e],
+               [bl-e, d-shell+e],
+               [tl-shell+e, -e],
+               [tl-shell+e, d-shell+e]];
+    intersection() {
+        difference() {
+            union() {
+                // base plate
+                cube([l, d, shell]);
+                // clip standoffs
+                for(p=centers) {
+                    x = p[0];
+                    y = p[1];
+                    r = p[2];
+                    standoff(x, y, shell, r);
+                }
+            }
+            union() {
+                // notches to engage rings
+                for(p=corners) {
+                    x = p[0];
+                    y = p[1];
+                    translate([x, y, -e])
+                        cube([shell+e, shell+e, shell+2*e]);
+                }
+                // let screws go all the way through the base plate
+                for(p=centers) {
+                    x = p[0];
+                    y = p[1];
+                    r = p[2];
+                    $fn = 30;
+                    translate([x, y, -e]) cylinder(d=screw_d, h=shell+2*e);
+                }
             }
         }
+        // the whole thing is constrained by the enclosing cylinders
         union() {
-            // notches to engage rings
-            for(p=corners) {
-                x = p[0];
-                y = p[1];
-                translate([x, y, -e])
-                    cube([shell+e, shell+e, shell+2*e]);
-            }
-            // let screws go all the way through the base plate
-            for(p=centers) {
-                x = p[0];
-                y = p[1];
-                r = p[2];
-                $fn = 30;
-                translate([x, y, -e]) cylinder(d=screw_d, h=shell+2*e);
-            }
+            translate([bl, d/2, shell/2]) rotate([0, 90, 0])
+                cylinder(d=d, h=al);
+            translate([0, d/2, shell/2]) rotate([0, 90, 0])
+                cylinder(d=cd, h=bl);
+            translate([tl, d/2, shell/2]) rotate([0, 90, 0])
+                cylinder(d=cd, h=bl);
         }
     }
 }

@@ -11,10 +11,11 @@ al = 90; // length of acrylic section
 bl = 25; // inset into bottom cap
 tl = al+bl; // offset for top cap (l-tl <= 7)
 shell = 3; // default thickness of printed parts
+rh = shell*3; // height of supporting ring
 
 // the case acrylic is 132mm long
 // the caps extend 21mm into the acrylic
-// this leaves 132-21*2 = 90mm max at diameter d
+// this leaves 132-21*2 = 90mm max at diameter d (al)
 // inside the caps there is 27mm at diameter cd
 // the bottom cap has no protrusions
 // the top cap has 7mm of usable space below hardware
@@ -74,9 +75,9 @@ module tray() {
                [l-x_off, y_off, -45],
                [l-x_off, d-y_off, 45]];
     corners = [[bl-e, -e],
-               [bl-e, d-shell+e],
-               [tl-shell+e, -e],
-               [tl-shell+e, d-shell+e]];
+               [bl-e, e+d-(shell+slop+sl)],
+               [tl-(shell+slop), -e],
+               [tl-(shell+slop), e+d-(shell+slop+sl)]];
     intersection() {
         difference() {
             union() {
@@ -96,7 +97,7 @@ module tray() {
                     x = p[0];
                     y = p[1];
                     translate([x, y, -e])
-                        cube([shell+e, shell+e, shell+2*e]);
+                        cube([shell+e+slop, shell+e+slop, shell+2*e]);
                 }
                 // let screws go all the way through the base plate
                 for(p=centers) {
@@ -111,26 +112,29 @@ module tray() {
         // the whole thing is constrained by the enclosing cylinders
         union() {
             translate([bl, d/2, shell/2]) rotate([0, 90, 0])
-                cylinder(d=d, h=al);
+                cylinder(d=d-slop, h=al, $fn=360);
             translate([0, d/2, shell/2]) rotate([0, 90, 0])
-                cylinder(d=cd, h=bl);
+                cylinder(d=cd, h=bl, $fn=360);
             translate([tl, d/2, shell/2]) rotate([0, 90, 0])
-                cylinder(d=cd, h=bl);
+                cylinder(d=cd, h=bl, $fn=360);
         }
     }
 }
 module bracelet() {
     $fn = 180;
     difference() {
-        cylinder(d=d-slop, h=2*shell+slop);
+        cylinder(d=d-slop, h=rh);
         union() {
             translate([0, 0, -e])
-                cylinder(d=(d-slop-2*shell), h=2*shell+2*e+slop);
-            translate([-d/2, -(shell/2 + sl), shell-slop])
-                cube([d, shell+slop, shell+e+2*slop]);
+                cylinder(d=(d-slop-2*shell), h=rh+2*e);
+            translate([-d/2, -(shell/2 + sl), shell])
+                cube([d, shell+slop, rh-shell+e]);
         }
     }
 }
 tray();
 translate([d/2, 1.5*d+shell, 0]) bracelet();
 translate([1.5*d+shell, 1.5*d+shell, 0]) bracelet();
+// test fit
+//%translate([bl, (d-slop)/2, shell/2]) rotate([90, 0, 90]) bracelet();
+//%translate([tl, (d-slop)/2, shell/2]) rotate([90, 0, -90]) bracelet();

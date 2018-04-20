@@ -10,8 +10,9 @@ l = 120; // overall support length, must be less than 124
 al = 90; // length of acrylic section
 bl = 25; // inset into bottom cap
 tl = al+bl; // offset for top cap (l-tl <= 7)
-shell = 3; // default thickness of printed parts
+shell = 2; // default thickness of printed parts
 rh = shell*3; // height of supporting ring
+rshell = 4; // thickness of supporting ring
 
 // the case acrylic is 132mm long
 // the caps extend 21mm into the acrylic
@@ -75,9 +76,9 @@ module tray() {
                [l-x_off, y_off, -45],
                [l-x_off, d-y_off, 45]];
     corners = [[bl-e, -e],
-               [bl-e, e+d-(shell+slop+sl)],
+               [bl-e, e+d-(rshell+slop+sl)],
                [tl-(shell+slop), -e],
-               [tl-(shell+slop), e+d-(shell+slop+sl)]];
+               [tl-(shell+slop), e+d-(rshell+slop+sl)]];
     intersection() {
         difference() {
             union() {
@@ -97,7 +98,7 @@ module tray() {
                     x = p[0];
                     y = p[1];
                     translate([x, y, -e])
-                        cube([shell+e+slop, shell+e+slop, shell+2*e]);
+                        cube([shell+e+slop, rshell+e+slop, shell+2*e]);
                 }
                 // let screws go all the way through the base plate
                 for(p=centers) {
@@ -126,7 +127,7 @@ module bracelet() {
         cylinder(d=d-slop, h=rh);
         union() {
             translate([0, 0, -e])
-                cylinder(d=(d-slop-2*shell), h=rh+2*e);
+                cylinder(d=(d-slop-2*rshell), h=rh+2*e);
             translate([-d/2, -(shell/2 + sl), shell])
                 cube([d, shell+slop, rh-shell+e]);
         }

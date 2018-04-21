@@ -71,10 +71,10 @@ module standoff(x, y, z, r) {
 module tray() {
     x_off = (l - board_l) / 2;
     y_off = (d - board_w) / 2;
-    centers = [[x_off, y_off, 180+45],
-               [x_off, d-y_off, 90+45],
-               [l-x_off, y_off, -45],
-               [l-x_off, d-y_off, 45]];
+    centers = [[x_off+hole_x_off, y_off+hole_y_off, 180+45],
+               [x_off+hole_x_off, d-(y_off+hole_y_off), 90+45],
+               [l-(x_off+hole_x_off), y_off+hole_y_off, -45],
+               [l-(x_off+hole_x_off), d-(y_off+hole_y_off), 45]];
     corners = [[bl-e, -e],
                [bl-e, e+d-(rshell+slop+sl)],
                [tl-(shell+slop), -e],
@@ -133,9 +133,15 @@ module bracelet() {
         }
     }
 }
+module test_fit() {
+    %translate([bl, (d-slop)/2, shell/2]) rotate([90, 0, 90])
+        bracelet();
+    %translate([tl, (d-slop)/2, shell/2]) rotate([90, 0, -90])
+        bracelet();
+    %translate([l/2-board_l/2, d/2-board_w/2, 2*shell])
+        cube([board_l, board_w, pcb_z]);
+}
 tray();
 translate([d/2, 1.5*d+shell, 0]) bracelet();
 translate([1.5*d+shell, 1.5*d+shell, 0]) bracelet();
-// test fit
-//%translate([bl, (d-slop)/2, shell/2]) rotate([90, 0, 90]) bracelet();
-//%translate([tl, (d-slop)/2, shell/2]) rotate([90, 0, -90]) bracelet();
+//test_fit();

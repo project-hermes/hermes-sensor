@@ -19,11 +19,18 @@ typedef struct GPS_LOC{
     float latitude, longitude; // -90 to 90, 180 to -180
 } GPS_LOC;
 
-typedef struct DIVE_DATA {
+typedef struct DIVE_INFO {
     int diveId;
     float latStart, latEnd, longStart, longEnd;
     int dataCount;
     unsigned long timeStart, timeEnd;
+    DIVE_DATA *diveData
+} DIVE_INFO;
+
+typedef struct DIVE_DATA {
+    byte[2] depth;
+    byte[2] temp1;
+    byte[2] temp2;
 } DIVE_DATA;
 
 GPS_LOC sensorGPS;
@@ -31,25 +38,14 @@ int sensorDepth; // centimeters
 float sensorTemp1; // precision .01, accuracy .1
 float sensorTemp2; // precision .01, accuracy 1
 
-DIVE_DATA diveData;
+DIVE_INFO diveInfo;
 
 FuelGauge fuel;
 
 void setup() {
-    // Set pin IN/OUT
-    pinMode(power,OUTPUT); // The pin powering the photoresistor is output (sending out consistent power)
-    pinMode(led,OUTPUT); // Our LED pin is output (lighting up the LED)
-    pinMode(photoresistor,INPUT);  // Our photoresistor pin is input (reading the photoresistor)
+    // Safety
+    diveInfo.diveData = NULL; 
     
-    // Set power pin high
-    digitalWrite(power,HIGH);
-    digitalWrite(led,LOW);
-    
-    // Publish vars for GET
-    Particle.variable("analogvalue", &analogValue, INT);
-    Particle.variable("timeint",timeInt);
-    Particle.variable("timestr",timeStr);
-
     // Functions for console control
     Particle.function("write",writeToggle);
     Particle.function("diveCreate",diveCreate);
@@ -89,7 +85,7 @@ void loop() {
             lastLogMillis = loopStart;
             
             char buffer[255];
-            sprintf(buffer, "%d @%d Bat: %f = %f", logCount, lastLogMillis, fuel.getSoC(), fuel.getVCell());
+            sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, System.freeMemory() lastLogMillis, fuel.getSoC(), fuel.getVCell());
             
             Particle.publish("test-hermes2", buffer);
             logCount++;
@@ -150,18 +146,39 @@ float readTemp2() {
 
 void diveStart() {
     GPS_LOC gps = readGPS();
-    diveData.diveId++;
-    diveData.latStart = gps.latitude;
-    diveData.longStart = gps.longitude;
-    diveData.dataCount = 0;
-    diveData.timeStart = Time.now();
+    diveInfo.diveId++;
+    diveInfo.latStart = gps.latitude;
+    diveInfo.longStart = gps.longitude;
+    diveInfo.dataCount = 0;
+    diveInfo.timeStart = Time.now();
+    // Zero out end info
+    diveInfo.latEnd = 0;
+    diveInfo.longEnd = 0;
+    diveInfo.timeEnd = 0;
+    // This should be allocated live in chunks (with freemem check reserving some amount TBD)
+    // For the moment, use static 1-hour dives
+    diveInfo.diveData = malloc(sizeof(DIVE_DATA))
 }
 
 void diveEnd() {
     GPS_LOC gps = readGPS();
-    diveData.latEnd = gps.latitude;
-    diveData.longEnd = gps.longitude;
-    diveData.timeEnd = Time.now();
+    diveInfo.latEnd = gps.latitude;
+    diveInfo.longEnd = gps.longitude;
+    diveInfo.timeEnd = Time.now();
+}
+
+void diveClear() {
+    // Clear dive data and null out pointer for safety (may get called again)
+    free(diveInfo.diveData)
+    diveInfo.diveData = NULL;
+    // Zero out info fields
+    diveInfo.latStart = 0;
+    diveInfo.longStart = 0;
+    diveInfo.latEnd = 0;
+    diveInfo.longEnd = 0;
+    diveInfo.dataCount = 0;
+    diveInfo.timeStart = 0;
+    diveInfo.timeEnd = 0;
 }
 
 int mockStart(String command) {
@@ -189,9 +206,9 @@ int diveCreate(String command) {
         // return the request if not null
         command.toCharArray(buffer, 255);
     } else {
-        sprintf(buffer, "%c%d %f %f %f %f %d %d %d", dataFormat, diveData.diveId,
-        diveData.latStart, diveData.longStart, diveData.latEnd, diveData.longEnd,
-        diveData.dataCount, diveData.timeStart, diveData.timeEnd);
+        sprintf(buffer, "%c%d %f %f %f %f %d %d %d", dataFormat, diveInfo.diveId,
+        diveInfo.latStart, diveInfo.longStart, diveInfo.latEnd, diveInfo.longEnd,
+        diveInfo.dataCount, diveInfo.timeStart, diveInfo.timeEnd);
     }
     
     Particle.publish("diveCreate", buffer);

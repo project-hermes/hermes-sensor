@@ -44,24 +44,24 @@ FuelGauge fuel;
 
 void setup() {
     // Safety
-    diveInfo.diveData = NULL; 
-    
+    diveInfo.diveData = NULL;
+
     // Functions for console control
     Particle.function("write",writeToggle);
     Particle.function("diveCreate",diveCreate);
     Particle.function("diveAppend",diveAppend);
     Particle.function("diveDone",diveDone);
-    
+
     Particle.function("mockGPS",mockGPS);
     Particle.function("mockDepth",mockDepth);
     Particle.function("mockTemp",mockTemp);
     Particle.function("mockStart",mockStart);
     Particle.function("mockEnd",mockEnd);
-    
+
     Particle.function("freeMem",freeMem);
     Particle.function("readAll",readAll);
     Particle.function("diveDump",diveDump);
-    
+
     randomSeed(analogRead(0));
 }
 
@@ -69,27 +69,27 @@ void loop() {
     unsigned long loopStart = millis();
     if (loopStart - lastLoopMillis >= loopDelay) {
         lastLoopMillis = loopStart;
-        
+
         timeInt = Time.now();
         analogValue = analogRead(photoresistor);
-        
+
         // light indicates writingness
         if (writeLogs) {
             digitalWrite(led,HIGH);
         } else {
             digitalWrite(led,LOW);
         }
-        
+
         //Particle.publish("test-hermes2", timeStr);
         if (writeLogs && (loopStart - lastLogMillis >= logDelay)) {
             lastLogMillis = loopStart;
-            
+
             char buffer[255];
             sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, System.freeMemory() lastLogMillis, fuel.getSoC(), fuel.getVCell());
-            
+
             Particle.publish("test-hermes2", buffer);
             logCount++;
-            
+
             if (logCount >= maxLogs) {
                 writeLogs = false;
             }
@@ -157,7 +157,8 @@ void diveStart() {
     diveInfo.timeEnd = 0;
     // This should be allocated live in chunks (with freemem check reserving some amount TBD)
     // For the moment, use static 1-hour dives
-    diveInfo.diveData = malloc(sizeof(DIVE_DATA))
+    free(diveInfo.diveData)
+    diveInfo.diveData = malloc(sizeof(DIVE_DATA)*)
 }
 
 void diveEnd() {
@@ -210,7 +211,7 @@ int diveCreate(String command) {
         diveInfo.latStart, diveInfo.longStart, diveInfo.latEnd, diveInfo.longEnd,
         diveInfo.dataCount, diveInfo.timeStart, diveInfo.timeEnd);
     }
-    
+
     Particle.publish("diveCreate", buffer);
     if (buffer[0] == dataFormat) {
         Particle.publish("test-hermes2", "action: Create, format: good");

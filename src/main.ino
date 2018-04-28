@@ -19,19 +19,19 @@ typedef struct GPS_LOC{
     float latitude, longitude; // -90 to 90, 180 to -180
 } GPS_LOC;
 
+typedef struct DIVE_DATA {
+    char depth[2];
+    char temp1[2];
+    char temp2[2];
+} DIVE_DATA;
+
 typedef struct DIVE_INFO {
     int diveId;
     float latStart, latEnd, longStart, longEnd;
     int dataCount;
     unsigned long timeStart, timeEnd;
-    DIVE_DATA *diveData
+    DIVE_DATA *diveData;
 } DIVE_INFO;
-
-typedef struct DIVE_DATA {
-    byte[2] depth;
-    byte[2] temp1;
-    byte[2] temp2;
-} DIVE_DATA;
 
 GPS_LOC sensorGPS;
 int sensorDepth; // centimeters
@@ -71,21 +71,22 @@ void loop() {
         lastLoopMillis = loopStart;
 
         timeInt = Time.now();
-        analogValue = analogRead(photoresistor);
 
+        /*
         // light indicates writingness
         if (writeLogs) {
             digitalWrite(led,HIGH);
         } else {
             digitalWrite(led,LOW);
         }
+        */
 
         //Particle.publish("test-hermes2", timeStr);
         if (writeLogs && (loopStart - lastLogMillis >= logDelay)) {
             lastLogMillis = loopStart;
 
             char buffer[255];
-            sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, System.freeMemory() lastLogMillis, fuel.getSoC(), fuel.getVCell());
+            sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, System.freeMemory(), lastLogMillis, fuel.getSoC(), fuel.getVCell());
 
             Particle.publish("test-hermes2", buffer);
             logCount++;
@@ -157,8 +158,8 @@ void diveStart() {
     diveInfo.timeEnd = 0;
     // This should be allocated live in chunks (with freemem check reserving some amount TBD)
     // For the moment, use static 1-hour dives
-    free(diveInfo.diveData)
-    diveInfo.diveData = malloc(sizeof(DIVE_DATA)*)
+    free(diveInfo.diveData);
+    diveInfo.diveData = (DIVE_DATA *)malloc(sizeof(DIVE_DATA)*3600);
 }
 
 void diveEnd() {
@@ -170,7 +171,7 @@ void diveEnd() {
 
 void diveClear() {
     // Clear dive data and null out pointer for safety (may get called again)
-    free(diveInfo.diveData)
+    free(diveInfo.diveData);
     diveInfo.diveData = NULL;
     // Zero out info fields
     diveInfo.latStart = 0;
@@ -197,8 +198,38 @@ int readAll(String command) {
     Particle.publish("test-hermes2", buffer);
 }
 
+bool doSample() {
+    if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
+        return false;
+    }
+    int depth = readDepth();
+    int temp1 = (int)((readTemp1() + 50) * 200);
+    int temp2 = (int)((readTemp1() + 50) * 200);
+    /*
+    sprintf(diveInfo.diveData,"%s%c%c%c%c%c%c", diveInfo.diveData,
+        depth%256, (depth>>8)%256,
+        temp1%256, (temp1>>8)%256,
+        temp2%256, (temp2>>8)%256);
+    */
+    sprintf(diveInfo.diveData[diveInfo.dataCount].depth,"%c%c", depth%256, (depth>>8)%256);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", temp1%256, (temp1>>8)%256);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);
+    diveInfo.dataCount++;
+    return true;
+}
+
 int freeMem(String command) {
     return System.freeMemory();
+}
+
+int addSamples(String command) {
+    int sampleCount = command.toInt();
+    if (sampleCount <= 0) {
+        sampleCount = 10;
+    }
+    for (int i = 0; i < sampleCount; i++) {
+        doSample();
+    }
 }
 
 int diveCreate(String command) {
@@ -222,15 +253,41 @@ int diveCreate(String command) {
     }
 }
 
+char *printDiveData(int start, int len) {
+    char buffer[len * sizeof(DIVE_DATA)];
+    for (int i = start; i < start+len; i++) {
+        sprintf(buffer + i * sizeof(DIVE_DATA), "%s%s%s",
+            diveInfo.diveData[i].depth, diveInfo.diveData[i].temp1, diveInfo.diveData[i].temp2);
+    }
+    return buffer;
+}
+
 int diveAppend(String command) {
     char buffer[255];
-    sprintf(buffer, command.substring(0,255));
+    if (command.length() > 0) {
+        // return the request if not null
+        command.toCharArray(buffer, 255);
+    } else {
+        int toSend = diveInfo.dataCount;
+        int firstTime = diveInfo.timeStart;
+        int dataIdx = 0;
+        int thisCount;
+        while (toSend > 0) {
+            thisCount = min(toSend, 41);
+            sprintf(buffer, "%c%c%c%c%c%c%c%s", dataFormat, diveInfo.diveId,
+            firstTime%256, (firstTime>>8)%256, (firstTime>>16)%256, (firstTime>>24)%256,
+            thisCount, printDiveData(dataIdx, dataIdx+thisCount));
+            toSend -= 41;
+            firstTime += 41;
+        }
+    }
+    
     Particle.publish("diveAppend", buffer);
     if (buffer[0] == dataFormat) {
-        Particle.publish("test-hermes2", "action: Create, format: good");
+        Particle.publish("test-hermes2", "action: Append, format: good");
         return 1;
     } else {
-        Particle.publish("test-hermes2", "action: Create, format: bad");
+        Particle.publish("test-hermes2", "action: Append, format: bad");
         return 0;
     }
 }
@@ -240,10 +297,10 @@ int diveDone(String command) {
     sprintf(buffer, command.substring(0,255));
     Particle.publish("diveDone", buffer);
     if (buffer[0] == dataFormat) {
-        Particle.publish("test-hermes2", "action: Create, format: good");
+        Particle.publish("test-hermes2", "action: Done, format: good");
         return 1;
     } else {
-        Particle.publish("test-hermes2", "action: Create, format: bad");
+        Particle.publish("test-hermes2", "action: Done, format: bad");
         return 0;
     }
 }

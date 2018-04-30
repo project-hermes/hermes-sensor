@@ -13,7 +13,7 @@ int packetCount = 0;
 String timeStr = "";
 
 // Hermes format version byte; 0 is reserved for future use (?)
-const char dataFormat = 'B';
+const char dataFormat = 3;
 
 typedef struct GPS_LOC{
     float latitude, longitude; // -90 to 90, 180 to -180
@@ -55,10 +55,12 @@ void setup() {
     Particle.function("mockGPS",mockGPS);
     Particle.function("mockDepth",mockDepth);
     Particle.function("mockTemp",mockTemp);
+    Particle.function("mockSamples",addSamples);
     Particle.function("mockStart",mockStart);
     Particle.function("mockEnd",mockEnd);
 
     Particle.function("freeMem",freeMem);
+    Particle.function("readStatus",readStatus);
     Particle.function("readAll",readAll);
     Particle.function("diveDump",diveDump);
 
@@ -86,7 +88,7 @@ void loop() {
             lastLogMillis = loopStart;
 
             char buffer[255];
-            sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, System.freeMemory(), lastLogMillis, fuel.getSoC(), fuel.getVCell());
+            sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, lastLogMillis, System.freeMemory(), fuel.getSoC(), fuel.getVCell());
 
             Particle.publish("test-hermes2", buffer);
             logCount++;
@@ -198,6 +200,12 @@ int readAll(String command) {
     Particle.publish("test-hermes2", buffer);
 }
 
+int readStatus(String command) {
+    char buffer[255];
+    sprintf(buffer, "FM: %d Bat: %f = %f", System.freeMemory(), fuel.getSoC(), fuel.getVCell());
+    Particle.publish("test-hermes2", buffer);
+}
+
 bool doSample() {
     if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
         return false;
@@ -238,7 +246,7 @@ int diveCreate(String command) {
         // return the request if not null
         command.toCharArray(buffer, 255);
     } else {
-        sprintf(buffer, "%c%d %f %f %f %f %d %d %d", dataFormat, diveInfo.diveId,
+        sprintf(buffer, "%d %d %f %f %f %f %d %d %d", dataFormat, diveInfo.diveId,
         diveInfo.latStart, diveInfo.longStart, diveInfo.latEnd, diveInfo.longEnd,
         diveInfo.dataCount, diveInfo.timeStart, diveInfo.timeEnd);
     }
@@ -253,17 +261,19 @@ int diveCreate(String command) {
     }
 }
 
-char *printDiveData(int start, int len) {
-    char buffer[len * sizeof(DIVE_DATA)];
-    for (int i = start; i < start+len; i++) {
-        sprintf(buffer + i * sizeof(DIVE_DATA), "%s%s%s",
+int printDiveData(char *buffer, int start, int len) {
+    int i;
+    for (i = start; i < start+len; i++) {
+        sprintf(buffer + i * sizeof(DIVE_DATA), "%c%c%c%c%c%c",
             diveInfo.diveData[i].depth, diveInfo.diveData[i].temp1, diveInfo.diveData[i].temp2);
     }
-    return buffer;
+    return (i * sizeof(DIVE_DATA));
 }
 
 int diveAppend(String command) {
     char buffer[255];
+    int sendCount = 0;
+    int lastDataLen = 0;
     if (command.length() > 0) {
         // return the request if not null
         command.toCharArray(buffer, 255);
@@ -274,22 +284,21 @@ int diveAppend(String command) {
         int thisCount;
         while (toSend > 0) {
             thisCount = min(toSend, 41);
-            sprintf(buffer, "%c%c%c%c%c%c%c%s", dataFormat, diveInfo.diveId,
-            firstTime%256, (firstTime>>8)%256, (firstTime>>16)%256, (firstTime>>24)%256,
-            thisCount, printDiveData(dataIdx, dataIdx+thisCount));
+            sprintf(buffer, "%c%c%c%c%c%c%c", dataFormat, diveInfo.diveId,
+                firstTime%256, (firstTime>>8)%256, (firstTime>>16)%256, (firstTime>>24)%256,
+                thisCount);
+            lastDataLen = printDiveData(buffer+7, dataIdx, dataIdx+thisCount);
             toSend -= 41;
             firstTime += 41;
+            Particle.publish("diveAppend", buffer);
+            sendCount++;
         }
     }
     
-    Particle.publish("diveAppend", buffer);
-    if (buffer[0] == dataFormat) {
-        Particle.publish("test-hermes2", "action: Append, format: good");
-        return 1;
-    } else {
-        Particle.publish("test-hermes2", "action: Append, format: bad");
-        return 0;
-    }
+    bool formatGood = (buffer[0] == dataFormat);
+    sprintf(buffer, "action: Append, format: %s, packets: %d, lastData: %d", (formatGood?"good":"bad"), sendCount, lastDataLen);
+    Particle.publish("test-hermes2", buffer);
+    return (formatGood?1:0);
 }
 
 int diveDone(String command) {

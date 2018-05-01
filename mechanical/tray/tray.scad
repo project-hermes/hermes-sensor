@@ -2,7 +2,7 @@
 // May be used under the terms of the MIT license found at
 // https://github.com/project-hermes/hermes-sensor/blob/master/LICENSE
 
-slop = 0.5; // loose interference fit
+slop = 0.35; // tight interference fit
 sl = slop/2; // for distributing slop over two parts
 d = inches(3); // ID of container
 cd = 62; // ID of caps

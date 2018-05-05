@@ -147,7 +147,7 @@ float readTemp2() {
     return sensorTemp2 + ((float)random(-100,101) / 100.0);
 }
 
-void diveStart() {
+int diveStart() {
     GPS_LOC gps = readGPS();
     diveInfo.diveId++;
     diveInfo.latStart = gps.latitude;
@@ -162,13 +162,15 @@ void diveStart() {
     // For the moment, use static 1-hour dives
     free(diveInfo.diveData);
     diveInfo.diveData = (DIVE_DATA *)malloc(sizeof(DIVE_DATA)*3600);
+	return diveInfo.diveId;
 }
 
-void diveEnd() {
+int diveEnd() {
     GPS_LOC gps = readGPS();
     diveInfo.latEnd = gps.latitude;
     diveInfo.longEnd = gps.longitude;
     diveInfo.timeEnd = Time.now();
+	return diveInfo.diveId;
 }
 
 void diveClear() {
@@ -186,11 +188,11 @@ void diveClear() {
 }
 
 int mockStart(String command) {
-    diveStart();
+    return diveStart();
 }
 
 int mockEnd(String command) {
-    diveEnd();
+    return diveEnd();
 }
 
 int readAll(String command) {
@@ -198,12 +200,14 @@ int readAll(String command) {
     GPS_LOC gps = readGPS();
     sprintf(buffer, "%d %f %f (%f, %f)", readDepth(), readTemp1(), readTemp2(), gps.latitude, gps.longitude);
     Particle.publish("test-hermes2", buffer);
+	return diveInfo.dataCount;
 }
 
 int readStatus(String command) {
     char buffer[255];
     sprintf(buffer, "FM: %d Bat: %f = %f", System.freeMemory(), fuel.getSoC(), fuel.getVCell());
     Particle.publish("test-hermes2", buffer);
+	return diveInfo.dataCount;
 }
 
 bool doSample() {
@@ -238,6 +242,7 @@ int addSamples(String command) {
     for (int i = 0; i < sampleCount; i++) {
         doSample();
     }
+	return sampleCount;
 }
 
 int diveCreate(String command) {
@@ -298,7 +303,7 @@ int diveAppend(String command) {
     bool formatGood = (buffer[0] == dataFormat);
     sprintf(buffer, "action: Append, format: %s, packets: %d, lastData: %d", (formatGood?"good":"bad"), sendCount, lastDataLen);
     Particle.publish("test-hermes2", buffer);
-    return (formatGood?1:0);
+    return (formatGood?sendCount:0);
 }
 
 int diveDone(String command) {

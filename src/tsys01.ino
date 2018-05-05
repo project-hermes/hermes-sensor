@@ -1,8 +1,9 @@
 #include "tsys01.h"
 #include "math.h"
-#include "application.h"
 
-void calibrate(uint16_t *calibrationValue){
+uint16_t calibrationValue[8];
+
+void calibrate(){
 	// Reset the TSYS01, per datasheet
 	Wire.beginTransmission(TSYS01_ADDR);
 	Wire.write(TSYS01_RESET);
@@ -22,10 +23,6 @@ void calibrate(uint16_t *calibrationValue){
 }
 
 float readTsysTemperature() {
-
-  uint16_t calibrationValue[8];
-  calibrate(calibrationValue);
-
 	Wire.beginTransmission(TSYS01_ADDR);
 	Wire.write(TSYS01_ADC_TEMP_CONV);
 	Wire.endTransmission();
@@ -43,11 +40,11 @@ float readTsysTemperature() {
 	data = (data << 8) | Wire.read();
 	data = (data << 8) | Wire.read();
 
-	return calculate(calibrationValue,data);
+	return calculate(data);
 }
 
 
-float calculate(uint16_t calibrationValue[], uint32_t data) {
+float calculate(uint32_t data) {
 	uint32_t adc = data/256;
 
   float temp = (-2) * float(calibrationValue[1]) / 1000000000000000000000.0f * pow(adc,4) +

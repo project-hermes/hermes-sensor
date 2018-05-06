@@ -1,7 +1,19 @@
 #include "ms5837.h"
+#include "math.h"
 
 float fluidDensity = 1029;
-uint16_t calibrationValue =
+uint16_t calibrationValue[8];
+int32_t temperature;
+int32_t pressure;
+
+const float Pa = 100.0f;
+const float bar = 0.001f;
+const float mbar = 1.0f;
+
+const uint8_t MS5837_30BA = 0;
+const uint8_t MS5837_02BA = 1;
+
+uint8_t _model = MS5837_30BA;
 
 int initPressureSensor(){
   // Reset the MS5837, per datasheet
@@ -19,12 +31,12 @@ int initPressureSensor(){
 		Wire.endTransmission();
 
 		Wire.requestFrom(MS5837_ADDR,2);
-		C[i] = (Wire.read() << 8) | Wire.read();
+		calibrationValue[i] = (Wire.read() << 8) | Wire.read();
 	}
 
-	// Verify that data is correct with CRC
-	uint8_t crcRead = C[0] >> 12;
-	uint8_t crcCalculated = crc4(C);
+  // Verify that data is correct with CRC
+	uint8_t crcRead = calibrationValue[0] >> 12;
+	uint8_t crcCalculated = crc4(calibrationValue);
 	if ( crcCalculated != crcRead ) {
 		return -1;
 	}
@@ -96,10 +108,11 @@ void readDepth() {
 	data2 = (data2 << 8) | Wire.read();
 	data2 = (data2 << 8) | Wire.read();
 
+  calculateDepth(data1, data2);
 }
 
-void calculateDepth() {
-	// Given C1-C6 and D1, D2, calculated TEMP and P
+void calculateDepth(uint32_t data1, uint32_t data2) {
+	// Given C1-C6 and D1, D2, calculated temperature and pressure
 	// Do conversion first and then second order temp compensation
 
 	int32_t dT = 0;
@@ -112,41 +125,41 @@ void calculateDepth() {
 	int64_t SENS2 = 0;
 
 	// Terms called
-	dT = D2-uint32_t(C[5])*256l;
+	dT = data2-uint32_t(calibrationValue[5])*256l;
 	if ( _model == MS5837_02BA ) {
-		SENS = int64_t(C[1])*65536l+(int64_t(C[3])*dT)/128l;
-		OFF = int64_t(C[2])*131072l+(int64_t(C[4])*dT)/64l;
-		P = (D1*SENS/(2097152l)-OFF)/(32768l);
+		SENS = int64_t(calibrationValue[1])*65536l+(int64_t(calibrationValue[3])*dT)/128l;
+		OFF = int64_t(calibrationValue[2])*131072l+(int64_t(calibrationValue[4])*dT)/64l;
+		pressure = (data1*SENS/(2097152l)-OFF)/(32768l);
 	} else {
-		SENS = int64_t(C[1])*32768l+(int64_t(C[3])*dT)/256l;
-		OFF = int64_t(C[2])*65536l+(int64_t(C[4])*dT)/128l;
-		P = (D1*SENS/(2097152l)-OFF)/(8192l);
+		SENS = int64_t(calibrationValue[1])*32768l+(int64_t(calibrationValue[3])*dT)/256l;
+		OFF = int64_t(calibrationValue[2])*65536l+(int64_t(calibrationValue[4])*dT)/128l;
+		pressure = (data1*SENS/(2097152l)-OFF)/(8192l);
 	}
 
 	// Temp conversion
-	TEMP = 2000l+int64_t(dT)*C[6]/8388608LL;
+	temperature = 2000l+int64_t(dT)*calibrationValue[6]/8388608LL;
 
 	//Second order compensation
 	if ( _model == MS5837_02BA ) {
-		if((TEMP/100)<20){         //Low temp
+		if((temperature/100)<20){         //Low temp
 			Serial.println("here");
 			Ti = (11*int64_t(dT)*int64_t(dT))/(34359738368LL);
-			OFFi = (31*(TEMP-2000)*(TEMP-2000))/8;
-			SENSi = (63*(TEMP-2000)*(TEMP-2000))/32;
+			OFFi = (31*(temperature-2000)*(temperature-2000))/8;
+			SENSi = (63*(temperature-2000)*(temperature-2000))/32;
 		}
 	} else {
-		if((TEMP/100)<20){         //Low temp
+		if((temperature/100)<20){         //Low temp
 			Ti = (3*int64_t(dT)*int64_t(dT))/(8589934592LL);
-			OFFi = (3*(TEMP-2000)*(TEMP-2000))/2;
-			SENSi = (5*(TEMP-2000)*(TEMP-2000))/8;
-			if((TEMP/100)<-15){    //Very low temp
-				OFFi = OFFi+7*(TEMP+1500l)*(TEMP+1500l);
-				SENSi = SENSi+4*(TEMP+1500l)*(TEMP+1500l);
+			OFFi = (3*(temperature-2000)*(temperature-2000))/2;
+			SENSi = (5*(temperature-2000)*(temperature-2000))/8;
+			if((temperature/100)<-15){    //Very low temp
+				OFFi = OFFi+7*(temperature+1500l)*(temperature+1500l);
+				SENSi = SENSi+4*(temperature+1500l)*(temperature+1500l);
 			}
 		}
-		else if((TEMP/100)>=20){    //High temp
+		else if((temperature/100)>=20){    //High temp
 			Ti = 2*(dT*dT)/(137438953472LL);
-			OFFi = (1*(TEMP-2000)*(TEMP-2000))/16;
+			OFFi = (1*(temperature-2000)*(temperature-2000))/16;
 			SENSi = 0;
 		}
 	}
@@ -155,10 +168,26 @@ void calculateDepth() {
 	SENS2 = SENS-SENSi;
 
 	if ( _model == MS5837_02BA ) {
-		TEMP = (TEMP-Ti);
-		P = (((D1*SENS2)/2097152l-OFF2)/32768l)/100;
+		temperature = (temperature-Ti);
+		pressure = (((data1*SENS2)/2097152l-OFF2)/32768l)/100;
 	} else {
-		TEMP = (TEMP-Ti);
-		P = (((D1*SENS2)/2097152l-OFF2)/8192l)/10;
+		temperature = (temperature-Ti);
+		pressure = (((data1*SENS2)/2097152l-OFF2)/8192l)/10;
 	}
+}
+
+float pressureMS5837(float conversion) {
+	return pressure*conversion;
+}
+
+float temperatureMS5837() {
+	return temperature/100.0f;
+}
+
+float depthMS5837() {
+	return (pressureMS5837(Pa)-101300)/(fluidDensity*9.80665);
+}
+
+float altitudeMS5837() {
+	return (1-pow((pressureMS5837(1.0f)/1013.25),.190284))*145366.45*.3048;
 }

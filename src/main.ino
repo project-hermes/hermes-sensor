@@ -173,7 +173,7 @@ typedef struct DIVE_DATA {
 } DIVE_DATA;
 
 typedef struct DIVE_INFO {
-    int diveId;
+    char diveId;
     float latStart, latEnd, longStart, longEnd;
     int dataCount;
     unsigned long timeStart, timeEnd;
@@ -300,6 +300,7 @@ float readTemp2() {
 int diveStart() {
     GPS_LOC gps = readGPS();
     diveInfo.diveId++;
+    if (diveInfo.diveId == 0) diveInfo.diveId++;
     diveInfo.latStart = gps.latitude;
     diveInfo.longStart = gps.longitude;
     diveInfo.dataCount = 0;
@@ -396,6 +397,7 @@ int addSamples(String command) {
 }
 
 int diveCreate(String command) {
+    // TODO: would be nice to ID in a way that doesn't require clearing sensorDiveId (time bomb if dropped)
     char buffer[255];
     if (command.length() > 0) {
         // return the request if not null
@@ -407,22 +409,16 @@ int diveCreate(String command) {
     }
 
     Particle.publish("diveCreate", buffer);
-    if (buffer[0] == dataFormat) {
-        Particle.publish("test-hermes2", "action: Create, format: good");
-        return 1;
-    } else {
-        Particle.publish("test-hermes2", "action: Create, format: bad");
-        return 0;
-    }
+    return diveInfo.diveId;
 }
 
 int printDiveData(char *buffer, int start, int len) {
     int i;
-    for (i = start; i < start+len; i++) {
+    for (i = 0; i < len; i++) {
         sprintf(buffer + i * sizeof(DIVE_DATA), "%c%c%c%c%c%c",
-            diveInfo.diveData[i].depth[0], diveInfo.diveData[i].depth[1], 
-            diveInfo.diveData[i].temp1[0], diveInfo.diveData[i].temp1[1], 
-            diveInfo.diveData[i].temp2[0], diveInfo.diveData[i].temp2[1]);
+            diveInfo.diveData[start+i].depth[0], diveInfo.diveData[start+i].depth[1], 
+            diveInfo.diveData[start+i].temp1[0], diveInfo.diveData[start+i].temp1[1], 
+            diveInfo.diveData[start+i].temp2[0], diveInfo.diveData[start+i].temp2[1]);
     }
     return (i * sizeof(DIVE_DATA));
 }
@@ -440,13 +436,12 @@ int diveAppend(String command) {
         int dataIdx = 0;
         int thisCount;
         while (toSend > 0) {
-            thisCount = min(toSend, 41);
+            thisCount = min(toSend, dataPerPublish);
             sprintf(buffer, "%c%c%c%c%c%c%c", dataFormat, diveInfo.diveId,
                 firstTime%256, (firstTime>>8)%256, (firstTime>>16)%256, (firstTime>>24)%256,
                 thisCount);
-            lastDataLen = printDiveData(buffer+7, dataIdx, dataIdx+thisCount);
-            toSend -= dataPerPublish;
-            firstTime += dataPerPublish;
+            lastDataLen = printDiveData(buffer+7, dataIdx, thisCount);
+            
             int pad;
             for (pad = 0; (lastDataLen+7+pad)%4 > 0; pad++) {
                 sprintf(buffer+7+lastDataLen+pad,"%c",0);
@@ -454,29 +449,35 @@ int diveAppend(String command) {
             char *z85out = Z85_encode((byte *)buffer, 7+lastDataLen+pad);
             Particle.publish("diveAppend", z85out);
             free(z85out);
+            
+            toSend -= dataPerPublish;
+            firstTime += dataPerPublish;
+            dataIdx += dataPerPublish;
             sendCount++;
         }
     }
     
     bool formatGood = (buffer[0] == dataFormat);
     int firstTime = diveInfo.timeStart;
-    sprintf(buffer, "action: Append, format: %s, packets: %d, lastData: %d %d %d %d %d", (formatGood?"good":"bad"), sendCount, lastDataLen, 
-        firstTime%256, (firstTime>>8)%256, (firstTime>>16)%256, (firstTime>>24)%256);
+    sprintf(buffer, "action: Append, format: %s, packets: %d, lastData: %d", (formatGood?"good":"bad"), sendCount, lastDataLen);
     Particle.publish("test-hermes2", buffer);
     return (formatGood?sendCount:0);
 }
 
 int diveDone(String command) {
+     // TODO: would be nice to ID in a way that doesn't require clearing sensorDiveId (time bomb if dropped)
     char buffer[255];
-    sprintf(buffer, command.substring(0,255));
-    Particle.publish("diveDone", buffer);
-    if (buffer[0] == dataFormat) {
-        Particle.publish("test-hermes2", "action: Done, format: good");
-        return 1;
+    if (command.length() > 0) {
+        // return the request if not null
+        command.toCharArray(buffer, 255);
     } else {
-        Particle.publish("test-hermes2", "action: Done, format: bad");
-        return 0;
+        sprintf(buffer, "%d %d %f %f %f %f %d %d %d", dataFormat, diveInfo.diveId,
+        diveInfo.latStart, diveInfo.longStart, diveInfo.latEnd, diveInfo.longEnd,
+        diveInfo.dataCount, diveInfo.timeStart, diveInfo.timeEnd);
     }
+    
+    Particle.publish("diveDone", buffer);
+    return diveInfo.diveId;
 }
 
 int diveDump(String command) {

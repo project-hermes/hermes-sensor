@@ -42,6 +42,7 @@ typedef struct DIVE_INFO {
 DIVE_INFO diveInfo;
 
 // Mock sensors
+bool useMocks;
 GPS_LOC sensorGPS;
 int sensorDepth; // centimeters
 float sensorTemp1; // precision .01, accuracy .1
@@ -60,6 +61,7 @@ void setup() {
     Particle.function("diveAppend",diveAppend);
     Particle.function("diveDone",diveDone);
 
+    Particle.function("mockToggle",mockToggle);
     Particle.function("mockGPS",mockGPS);
     Particle.function("mockDepth",mockDepth);
     Particle.function("mockTemp",mockTemp);
@@ -96,15 +98,15 @@ void loop() {
         }
         */
 
-		// Sensor readers
-        Serial.println("Reading sensor...");
-        readDepth();
-
-        Serial.printf("Temp: %f\n",temperatureMS5837());
-        Serial.printf("Depth: %f\n",depthMS5837());
-        Serial.printf("Altitude: %f\n",altitudeMS5837());
-
         if (writeLogs && (loopStart - lastLogMillis >= logDelay)) {
+    		// Sensor readers
+            Serial.println("Reading sensor...");
+            readDepth();
+
+            Serial.printf("Temp: %f\n",temperatureMS5837());
+            Serial.printf("Depth: %f\n",depthMS5837());
+            Serial.printf("Altitude: %f\n",altitudeMS5837());
+
             lastLogMillis = loopStart;
 
             char buffer[255];
@@ -132,6 +134,12 @@ int writeToggle(String command) {
     }
 }
 
+int mockToggle(String command) {
+    int readInt = command.toInt();
+    useMocks = (readInt == 1);
+    return readInt;
+}
+
 int mockGPS(String command) {
     int split = command.indexOf(" ");
     sensorGPS.latitude = command.substring(0,split).toFloat();
@@ -148,9 +156,14 @@ int mockDepth(String command) {
     return sensorDepth;
 }
 
-int readDepth() {
-    // drift 5 cm
-    return sensorDepth + random(-5,6);
+int readDepthSensor() {
+    if (useMocks) {
+        // drift 5 cm
+        return sensorDepth + random(-5,6);
+    } else {
+        readDepth();
+        return depthMS5837();
+    }
 }
 
 int mockTemp(String command) {
@@ -161,13 +174,22 @@ int mockTemp(String command) {
 }
 
 float readTemp1() {
-    // drift .1 degree
-    return sensorTemp1 + ((float)random(-10,11) / 100.0);
+    if (useMocks) {
+        // drift .1 degree
+        return sensorTemp1 + ((float)random(-10,11) / 100.0);
+    } else {
+        return temperatureMS5837();
+    }
 }
 
 float readTemp2() {
-    // drift 1 degree
-    return sensorTemp2 + ((float)random(-100,101) / 100.0);
+    if (useMocks) {
+        // drift 1 degree
+        return sensorTemp2 + ((float)random(-100,101) / 100.0);
+    } else {
+        // initially use only one sensor
+        return temperatureMS5837();
+    }
 }
 
 int diveStart() {
@@ -222,7 +244,7 @@ int mockEnd(String command) {
 int readAll(String command) {
     char buffer[255];
     GPS_LOC gps = readGPS();
-    sprintf(buffer, "%d %f %f (%f, %f)", readDepth(), readTemp1(), readTemp2(), gps.latitude, gps.longitude);
+    sprintf(buffer, "%d %f %f (%f, %f)", readDepthSensor(), readTemp1(), readTemp2(), gps.latitude, gps.longitude);
     Particle.publish("test-hermes2", buffer);
     return diveInfo.dataCount;
 }
@@ -238,7 +260,7 @@ bool doSample() {
     if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
         return false;
     }
-    int depth = readDepth();
+    int depth = readDepthSensor();
     int temp1 = (int)((readTemp1() + 50) * 200);
     int temp2 = (int)((readTemp1() + 50) * 200);
     /*
@@ -289,8 +311,8 @@ int printDiveData(char *buffer, int start, int len) {
     int i;
     for (i = 0; i < len; i++) {
         sprintf(buffer + i * sizeof(DIVE_DATA), "%c%c%c%c%c%c",
-            diveInfo.diveData[start+i].depth[0], diveInfo.diveData[start+i].depth[1], 
-            diveInfo.diveData[start+i].temp1[0], diveInfo.diveData[start+i].temp1[1], 
+            diveInfo.diveData[start+i].depth[0], diveInfo.diveData[start+i].depth[1],
+            diveInfo.diveData[start+i].temp1[0], diveInfo.diveData[start+i].temp1[1],
             diveInfo.diveData[start+i].temp2[0], diveInfo.diveData[start+i].temp2[1]);
     }
     return (i * sizeof(DIVE_DATA));
@@ -314,7 +336,7 @@ int diveAppend(String command) {
                 firstTime%256, (firstTime>>8)%256, (firstTime>>16)%256, (firstTime>>24)%256,
                 thisCount);
             lastDataLen = printDiveData(buffer+7, dataIdx, thisCount);
-            
+
             int pad;
             for (pad = 0; (lastDataLen+7+pad)%4 > 0; pad++) {
                 sprintf(buffer+7+lastDataLen+pad,"%c",0);
@@ -322,14 +344,14 @@ int diveAppend(String command) {
             char *z85out = Z85_encode((byte *)buffer, 7+lastDataLen+pad);
             Particle.publish("diveAppend", z85out);
             free(z85out);
-            
+
             toSend -= dataPerPublish;
             firstTime += dataPerPublish;
             dataIdx += dataPerPublish;
             sendCount++;
         }
     }
-    
+
     bool formatGood = (buffer[0] == dataFormat);
     int firstTime = diveInfo.timeStart;
     sprintf(buffer, "action: Append, format: %s, packets: %d, lastData: %d", (formatGood?"good":"bad"), sendCount, lastDataLen);
@@ -348,7 +370,7 @@ int diveDone(String command) {
         diveInfo.latStart, diveInfo.longStart, diveInfo.latEnd, diveInfo.longEnd,
         diveInfo.dataCount, diveInfo.timeStart, diveInfo.timeEnd);
     }
-    
+
     Particle.publish("diveDone", buffer);
     return diveInfo.diveId;
 }
@@ -360,28 +382,28 @@ int diveDump(String command) {
 //  --------------------------------------------------------------------------
 //  Reference implementation for rfc.zeromq.org/spec:32/Z85
 //
-//  This implementation provides a Z85 codec as an easy-to-reuse C class 
+//  This implementation provides a Z85 codec as an easy-to-reuse C class
 //  designed to be easy to port into other languages.
 
 //  --------------------------------------------------------------------------
 //  Copyright (c) 2010-2013 iMatix Corporation and Contributors
-//  
-//  Permission is hereby granted, free of charge, to any person obtaining a 
+//
+//  Permission is hereby granted, free of charge, to any person obtaining a
 //  copy of this software and associated documentation files (the "Software"),
-//  to deal in the Software without restriction, including without limitation 
-//  the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-//  and/or sell copies of the Software, and to permit persons to whom the 
+//  to deal in the Software without restriction, including without limitation
+//  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+//  and/or sell copies of the Software, and to permit persons to whom the
 //  Software is furnished to do so, subject to the following conditions:
-//  
-//  The above copyright notice and this permission notice shall be included in 
+//
+//  The above copyright notice and this permission notice shall be included in
 //  all copies or substantial portions of the Software.
-//  
-//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-//  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-//  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
+//
+//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
 //  THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
-//  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+//  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+//  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 //  DEALINGS IN THE SOFTWARE.
 //  --------------------------------------------------------------------------
 
@@ -397,14 +419,14 @@ typedef unsigned char byte;
 
 //  Maps base 256 to base 85
 static char encoder [85 + 1] = {
-    "0123456789" 
-    "abcdefghij" 
-    "klmnopqrst" 
+    "0123456789"
+    "abcdefghij"
+    "klmnopqrst"
     "uvwxyzABCD"
-    "EFGHIJKLMN" 
-    "OPQRSTUVWX" 
-    "YZ.-:+=^!/" 
-    "*?&<>()[]{" 
+    "EFGHIJKLMN"
+    "OPQRSTUVWX"
+    "YZ.-:+=^!/"
+    "*?&<>()[]{"
     "}@%$#"
 };
 
@@ -412,17 +434,17 @@ static char encoder [85 + 1] = {
 //  Maps base 85 to base 256
 //  We chop off lower 32 and higher 128 ranges
 static byte decoder [96] = {
-    0x00, 0x44, 0x00, 0x54, 0x53, 0x52, 0x48, 0x00, 
-    0x4B, 0x4C, 0x46, 0x41, 0x00, 0x3F, 0x3E, 0x45, 
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 
-    0x08, 0x09, 0x40, 0x00, 0x49, 0x42, 0x4A, 0x47, 
-    0x51, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 
-    0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32, 
-    0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 
-    0x3B, 0x3C, 0x3D, 0x4D, 0x00, 0x4E, 0x43, 0x00, 
-    0x00, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 
-    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 
-    0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 
+    0x00, 0x44, 0x00, 0x54, 0x53, 0x52, 0x48, 0x00,
+    0x4B, 0x4C, 0x46, 0x41, 0x00, 0x3F, 0x3E, 0x45,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x40, 0x00, 0x49, 0x42, 0x4A, 0x47,
+    0x51, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A,
+    0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32,
+    0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A,
+    0x3B, 0x3C, 0x3D, 0x4D, 0x00, 0x4E, 0x43, 0x00,
+    0x00, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+    0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
     0x21, 0x22, 0x23, 0x4F, 0x00, 0x50, 0x00, 0x00
 };
 */
@@ -436,7 +458,7 @@ Z85_encode (byte *data, size_t size)
     //  Accepts only byte arrays bounded to 4 bytes
     if (size % 4)
         return NULL;
-    
+
     size_t encoded_size = size * 5 / 4;
     char *encoded = (char *)malloc (encoded_size + 1);
     uint char_nbr = 0;
@@ -460,7 +482,7 @@ Z85_encode (byte *data, size_t size)
     return encoded;
 }
 
-/*    
+/*
 //  --------------------------------------------------------------------------
 //  Decode an encoded string into a byte array; size of array will be
 //  strlen (string) * 4 / 5.
@@ -471,7 +493,7 @@ Z85_decode (char *string)
     //  Accepts only strings bounded to 5 bytes
     if (strlen (string) % 5)
         return NULL;
-    
+
     size_t decoded_size = strlen (string) * 4 / 5;
     byte *decoded = (byte *)malloc (decoded_size);
 

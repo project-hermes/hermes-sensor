@@ -118,7 +118,7 @@ void setup() {
     Particle.function("diveAppend",diveAppend);
     Particle.function("diveDone",diveDone);
 
-    Particle.function("readAllReal",readAllReal);
+    Particle.function("readAllRaw",readAllRaw);
     Particle.function("scanI2C",scanI2C);
 
     Particle.function("mockToggle",mockToggle);
@@ -153,6 +153,7 @@ void setup() {
 }
 
 void loop() {
+    realGPS.updateGPS();    // without high-frequency pokes, GPS chip never locks.
     unsigned long loopStart = millis();
     if (loopStart - lastLoopMillis >= loopDelay) {
         lastLoopMillis = loopStart;
@@ -176,10 +177,10 @@ void loop() {
                 RGB.color(255, 0, 0);
                 // Simple upload, no handshake or verification
                 diveCreate("");
-                delay(30000);  // no handshake; assume 1 minute is enough time
+                delay(60000);  // no handshake; assume 1 minute is enough time
                 RGB.color(0, 0, 255);
                 diveAppend("");
-                delay(30000);  // no handshake; assume 1 minute is enough time
+                delay(60000);  // no handshake; assume 1 minute is enough time
                 diveDone("");
                 RGB.control(false);
             }
@@ -266,13 +267,16 @@ int scanI2C(String command) {
     return nDevices;
 }
 
-int readAllReal(String command) {
+int readAllRaw(String command) {
     readDepth();
-    int depth = depthMS5837();
-    float temp = temperatureMS5837();
     realGPS.updateGPS();
     char buffer[255];
-    sprintf(buffer, "%d: real: %d %f (%f %f) ; mock: %d %f %f (%f %f)", diveInfo.diveId, depth, temp, realGPS.readLat(), realGPS.readLon(), sensorDepth, sensorTemp1, sensorTemp2, sensorGPS.latitude, sensorGPS.longitude);
+    sprintf(buffer, "%d %s real: %d %f (%f %f) ; mock: %d %f %f (%f %f)", 
+        diveInfo.diveId, (useMocks?"T":"F"), 
+        depthMS5837(), temperatureMS5837(), realGPS.readLatDeg(), realGPS.readLonDeg(), 
+        sensorDepth, sensorTemp1, sensorTemp2, sensorGPS.latitude, sensorGPS.longitude);
+    Particle.publish("test-hermes2", buffer);
+    sprintf(buffer, "raw GPS: %s", realGPS.preNMEA());
     Particle.publish("test-hermes2", buffer);
     return diveInfo.dataCount;
 }
@@ -295,7 +299,7 @@ GPS_LOC readGPS() {
         return sensorGPS;
     } else {
         realGPS.updateGPS();
-        return GPS_LOC{realGPS.readLat(), realGPS.readLon()};
+        return GPS_LOC{realGPS.readLatDeg(), realGPS.readLonDeg()};
     }
 }
 
@@ -309,8 +313,15 @@ int readDepthSensor() {
         // drift 5 cm
         return sensorDepth + random(-5,6);
     } else {
-        readDepth();
-        return depthMS5837();
+        // TODO: get the error out through the sensor read
+        Wire.beginTransmission(MS5837_ADDR);
+        if (Wire.endTransmission() == 0) {
+            readDepth();
+            return depthMS5837();
+        } else {
+            // failed to find sensor
+            return 0;
+        }
     }
 }
 
@@ -326,7 +337,14 @@ float readTemp1() {
         // drift .1 degree
         return sensorTemp1 + ((float)random(-10,11) / 100.0);
     } else {
-        return temperatureMS5837();
+        // TODO: get the error out through the sensor read
+        Wire.beginTransmission(TSYS01_ADDR);
+        if (Wire.endTransmission() == 0) {
+            return temperatureMS5837();
+        } else {
+            // failed to find sensor
+            return 0;
+        }
     }
 }
 
@@ -336,7 +354,14 @@ float readTemp2() {
         return sensorTemp2 + ((float)random(-100,101) / 100.0);
     } else {
         // initially use only one sensor
-        return temperatureMS5837();
+        // TODO: get the error out through the sensor read
+        Wire.beginTransmission(TSYS01_ADDR);
+        if (Wire.endTransmission() == 0) {
+            return temperatureMS5837();
+        } else {
+            // failed to find sensor
+            return 0;
+        }
     }
 }
 
@@ -395,8 +420,8 @@ int mockEnd(String command) {
 
 int readAll(String command) {
     char buffer[255];
-    GPS_LOC gps = readGPS();
-    sprintf(buffer, "%d %f %f (%f, %f)", readDepthSensor(), readTemp1(), readTemp2(), gps.latitude, gps.longitude);
+    GPS_LOC localgps = readGPS();
+    sprintf(buffer, "%d %f %f (%f, %f)", readDepthSensor(), readTemp1(), readTemp2(), localgps.latitude, localgps.longitude);
     Particle.publish("test-hermes2", buffer);
     return diveInfo.dataCount;
 }
@@ -927,4 +952,3 @@ float depthMS5837() {
 float altitudeMS5837() {
 	return (1-pow((pressureMS5837(1.0f)/1013.25),.190284))*145366.45*.3048;
 }
-

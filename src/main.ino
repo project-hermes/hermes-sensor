@@ -75,6 +75,12 @@ void setup() {
     Particle.function("diveDump",diveDump);
 
     randomSeed(analogRead(0));
+    
+    // Set up mocks
+    useMocks = false;
+    sensorDepth = 0;
+    sensorTemp1 = 0;
+    sensorTemp2 = 0;
 
 	// Sensor setup code
     Wire.begin();
@@ -88,18 +94,21 @@ void loop() {
     unsigned long loopStart = millis();
     if (loopStart - lastLoopMillis >= loopDelay) {
         lastLoopMillis = loopStart;
-
-        /*
-        // light indicates writingness
-        if (writeLogs) {
-            digitalWrite(led,HIGH);
+	
+        if (readDepthSensor() >= 10) {
+	        if (diveActive()) {
+                doSample();
+            } else {
+                diveStart();
+            }
         } else {
-            digitalWrite(led,LOW);
+            if (diveActive()) {
+                diveEnd();
+            }
         }
-        */
 
         if (writeLogs && (loopStart - lastLogMillis >= logDelay)) {
-    		// Sensor readers
+            // Sensor readers
             Serial.println("Reading sensor...");
             readDepth();
 
@@ -190,6 +199,10 @@ float readTemp2() {
         // initially use only one sensor
         return temperatureMS5837();
     }
+}
+
+int diveActive() {
+    return ((diveInfo.timeStart > 0) && (diveInfo.timeEnd == 0));
 }
 
 int diveStart() {

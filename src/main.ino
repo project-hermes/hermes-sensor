@@ -96,14 +96,30 @@ void loop() {
         lastLoopMillis = loopStart;
 	
         if (readDepthSensor() >= 10) {
-	        if (diveActive()) {
+	    if (diveActive()) {
                 doSample();
+                if ((diveInfo.dataCount % 5) == 0) {
+                    RGB.color(0, 255, 0);
+                } else {
+                    RGB.color(255, 0, 255);
+                }
             } else {
                 diveStart();
+                RGB.control(true);
+                RGB.color(255, 0, 255);
             }
         } else {
             if (diveActive()) {
                 diveEnd();
+                RGB.color(255, 0, 0);
+                // Simple upload, no handshake or verification
+                diveCreate("");
+                delay(30000);  // no handshake; assume 1 minute is enough time
+                RGB.color(0, 0, 255);
+                diveAppend("");
+                delay(30000);  // no handshake; assume 1 minute is enough time
+                diveDone("");
+                RGB.control(false);
             }
         }
 

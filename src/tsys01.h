@@ -14,4 +14,7 @@
 float readTsysTemperature();
 void calibrate();
 
+// utility functions
+float calculate(uint32_t data);
+
 #endif

@@ -16,4 +16,8 @@ float temperatureMS5837();
 float depthMS5837();
 float altitudeMS5837();
 
+// utility functions
+void calculateDepth(uint32_t data1, uint32_t data2);
+uint8_t crc4(uint16_t n_prom[]);
+
 #endif

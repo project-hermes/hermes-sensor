@@ -60,6 +60,7 @@ uint8_t crc4(uint16_t n_prom[]);
 //#include "tsys01.h"
 //#include "ms5837.h"
 #include "application.h"
+#include <AssetTracker.h>
 
 // loop control
 const int loopDelay = 1000;	// 1 second
@@ -105,16 +106,20 @@ float sensorTemp2; // precision .01, accuracy 1
 
 // Actual sensors
 FuelGauge fuel;
+AssetTracker realGPS = AssetTracker();
 
 void setup() {
     // Safety
     diveInfo.diveData = NULL;
 
     // Functions for console control
-    Particle.function("write",writeToggle);
+    //Particle.function("write",writeToggle);
     Particle.function("diveCreate",diveCreate);
     Particle.function("diveAppend",diveAppend);
     Particle.function("diveDone",diveDone);
+
+    Particle.function("readAllReal",readAllReal);
+    Particle.function("scanI2C",scanI2C);
 
     Particle.function("mockToggle",mockToggle);
     Particle.function("mockGPS",mockGPS);
@@ -140,6 +145,8 @@ void setup() {
 	// Sensor setup code
     Wire.begin();
     Serial.begin();
+    realGPS.begin();
+    realGPS.gpsOn();  // gps on but at rest is fairly low power draw
 
     Serial.println("Starting pressure sensor...");
     initPressureSensor();
@@ -214,6 +221,62 @@ int writeToggle(String command) {
     }
 }
 
+int scanI2C(String command) {
+    byte error, address;
+    int nDevices = 0;
+
+    char buffer[255];
+    char errBuffer[255];
+    sprintf(buffer, "sI2C:");
+    sprintf(errBuffer, "sI2C errs:");
+
+    Serial.println("Scanning...");
+    for(address = 1; address < 127; address++ ){
+        Wire.beginTransmission(address);
+        error = Wire.endTransmission();
+        
+        if (error == 0){
+            sprintf(buffer+strlen(buffer), " %d", address);
+            Serial.print("I2C device found at address 0x");
+            if (address<16){
+                Serial.print("0");
+            }
+            Serial.print(address,HEX);
+            Serial.println("  !");
+            
+            nDevices++;
+        } else if (error==4){
+            sprintf(errBuffer+strlen(errBuffer), " %d", address);
+            Serial.print("Unknown error at address 0x");
+            if (address<16){
+                Serial.print("0");
+            }
+            Serial.println(address,HEX);
+        }
+    }
+    if (nDevices == 0){
+        Serial.println("No I2C devices found\n");
+    } else {
+        Serial.println("done\n");
+    }
+    
+    sprintf(buffer+strlen(buffer), " =%d", nDevices);
+    Particle.publish("test-hermes2", buffer);
+    Particle.publish("test-hermes2", errBuffer);
+    return nDevices;
+}
+
+int readAllReal(String command) {
+    readDepth();
+    int depth = depthMS5837();
+    float temp = temperatureMS5837();
+    realGPS.updateGPS();
+    char buffer[255];
+    sprintf(buffer, "%d: real: %d %f (%f %f) ; mock: %d %f %f (%f %f)", diveInfo.diveId, depth, temp, realGPS.readLat(), realGPS.readLon(), sensorDepth, sensorTemp1, sensorTemp2, sensorGPS.latitude, sensorGPS.longitude);
+    Particle.publish("test-hermes2", buffer);
+    return diveInfo.dataCount;
+}
+
 int mockToggle(String command) {
     int readInt = command.toInt();
     useMocks = (readInt == 1);
@@ -228,7 +291,12 @@ int mockGPS(String command) {
 }
 
 GPS_LOC readGPS() {
-    return sensorGPS;
+    if (useMocks) {
+        return sensorGPS;
+    } else {
+        realGPS.updateGPS();
+        return GPS_LOC{realGPS.readLat(), realGPS.readLon()};
+    }
 }
 
 int mockDepth(String command) {
@@ -859,3 +927,4 @@ float depthMS5837() {
 float altitudeMS5837() {
 	return (1-pow((pressureMS5837(1.0f)/1013.25),.190284))*145366.45*.3048;
 }
+

@@ -309,6 +309,7 @@ int mockDepth(String command) {
 }
 
 int readDepthSensor() {
+    return sensorDepth + random(-5,6);
     if (useMocks) {
         // drift 5 cm
         return sensorDepth + random(-5,6);
@@ -340,6 +341,7 @@ float readTemp1() {
         // TODO: get the error out through the sensor read
         Wire.beginTransmission(TSYS01_ADDR);
         if (Wire.endTransmission() == 0) {
+            readDepth();
             return temperatureMS5837();
         } else {
             // failed to find sensor
@@ -357,6 +359,7 @@ float readTemp2() {
         // TODO: get the error out through the sensor read
         Wire.beginTransmission(TSYS01_ADDR);
         if (Wire.endTransmission() == 0) {
+            readDepth();
             return temperatureMS5837();
         } else {
             // failed to find sensor

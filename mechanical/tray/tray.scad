@@ -29,17 +29,31 @@ hole_y_off = (board_w - inches(1.107)) / 2;
 hole_avg_off = (hole_x_off + hole_y_off) / 2; // close enough
 hole_off = hole_avg_off * sqrt(2); // mount at 45⁰ angle
 board_x_off = (l - board_l) / 2;
-board_y_off = (d - board_w) / 2;
+board_y_avg_off = (d - board_w) / 2;
+board_y_off = 8; // absolute offset
+board_standoff_height = 4;
 standoff_d = hole_off;
 standoff_r = standoff_d/2;
 standoff_h = 15; // needs to be larger than the largest excursion below PCB
 
+grove_l = 40;
+grove_w = 20;
+grove_offset = 10; // holes are centered on edge, 10mm from corner?
+grove_x_offset = 33;
+grove_y_offset = 5;
+grove_screw_d = 2.3; // some space around M2 screws
+
 board_centers = [ // board standoff center locations and orientation
     // X, Y, rotation of standoff
-    [board_x_off+hole_x_off, board_y_off+hole_y_off, 180+45],
-    [board_x_off+hole_x_off, d-(board_y_off+hole_y_off), 90+45],
-    [l-(board_x_off+hole_x_off), board_y_off+hole_y_off, -45],
-    [l-(board_x_off+hole_x_off), d-(board_y_off+hole_y_off), 45]
+    [board_x_off+hole_x_off, board_y_off+board_y_avg_off+hole_y_off, 180+45],
+    [board_x_off+hole_x_off, board_y_off+d-(board_y_avg_off+hole_y_off), 90+45],
+    [l-(board_x_off+hole_x_off), board_y_off+board_y_avg_off+hole_y_off, -45],
+    [l-(board_x_off+hole_x_off), board_y_off+d-(board_y_avg_off+hole_y_off), 45]
+];
+grove_centers = [
+    [grove_x_offset, grove_y_offset+grove_offset],
+    [grove_x_offset+grove_l-grove_offset, grove_y_offset],
+    [grove_x_offset+grove_l-grove_offset, grove_y_offset+grove_w]
 ];
 ant_l = 80; // antenna length
 ant_w = 20; // antenna width
@@ -47,19 +61,21 @@ ant_n_x_off = 10; // antenna needs offset
 ant_centers = [// antenna standoff center locations / orientation
     [l-(ant_n_x_off+standoff_r), d/2, 0],
     [l-(ant_n_x_off+ant_l-standoff_r), d/2, 180],
-    [l-(ant_n_x_off+ant_l/3), (d/2-ant_w/2)+standoff_r, -90],
-    [l-(ant_n_x_off+ant_l/3), d/2+ant_w/2-standoff_r, 90]
+    [l-(ant_n_x_off+(2*ant_l/3)), (d/2-ant_w/2)+standoff_r, -90],
+    [l-(ant_n_x_off+(2*ant_l/3)), d/2+ant_w/2-standoff_r, 90]
 ];
 bat_z = 10;
 bat_l = 35;
 bat_w = 50;
+bat_x_off = 5;
 bat_d = 4; // size of hole for battery zip-tie
 cord_d = 8; // holes to route cords through
 cord_centers = [
-    [bl, 1/4*d],
+    [bl/2, 1/4*d],
     [bl, 3/4*d],
-    [l-bl, 1/4*d],
-    [l-bl, 3/4*d],
+    [bl*2, 7/8*d],
+    [l-(bl/2), 1/4*d],
+    [l-(bl/2), 5/8*d],
 ];
 pcb_z = 1.6; // thickness of PCB
 screw_d = inches(0.125); // size of mounting screw hole
@@ -132,10 +148,16 @@ module tray() {
                     $fn = 30;
                     translate([x, y, -e]) cylinder(d=screw_d, h=shell+2*e);
                 }
+                for(p=grove_centers) {
+                    x = p[0];
+                    y = p[1];
+                    $fn = 30;
+                    translate([x, y, -e]) cylinder(d=grove_screw_d, h=shell+2*e);
+                }
                 x=bat_l/2;
                 y=bat_w/2;
                 for(p=[[0, -y], [0, y], [-x, 0], [x, 0]]) {
-                    translate([(l/2+p[0])-(bat_d/2), (d/2+p[1])-(bat_d/2), -e])
+                    translate([(2*(l/3)+bat_x_off+p[0])-(bat_d/2), (d/2+p[1])-(bat_d/2), -e])
                         cube([bat_d, bat_d, shell+2*e]);
                 }
                 for(p=cord_centers) {
@@ -174,14 +196,16 @@ module test_fit() {
         bracelet();
     %translate([tl, (d-slop)/2, shell/2]) rotate([90, 0, -90])
         bracelet();
-    %translate([l/2-board_l/2, d/2-board_w/2, -shell])
+    %translate([l/2-board_l/2, board_y_off+d/2-board_w/2, -(shell+board_standoff_height)])
         cube([board_l, board_w, pcb_z]);
+    %translate([grove_x_offset, grove_y_offset, -(shell+board_standoff_height)])
+        cube([grove_l, grove_w, pcb_z]);
     %translate([l-(ant_l+ant_n_x_off), d/2-ant_w/2, standoff_h+shell])
         cube([ant_l, ant_w, pcb_z]);
-    %translate([l/2-bat_l/2, d/2-bat_w/2, shell])
+    %translate([2*(l/3)+bat_x_off-bat_l/2, d/2-bat_w/2, shell])
         cube([bat_l, bat_w, bat_z]);
 }
 tray();
 translate([d/2, 1.5*d+shell, 0]) bracelet();
 translate([1.5*d+shell, 1.5*d+shell, 0]) bracelet();
-//test_fit();
+test_fit();

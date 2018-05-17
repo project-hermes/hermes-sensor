@@ -42,8 +42,14 @@ float calculate(uint32_t data);
 #define MS5837_CONVERT_D1_8192    0x4A
 #define MS5837_CONVERT_D2_8192    0x5A
 
+// Raw depth storage
+typedef struct RAW_DEPTH {
+    uint32_t data1;
+    uint32_t data2;
+} RAW_DEPTH;
+
 int initPressureSensor();
-void readDepth();
+RAW_DEPTH readDepth();
 float temperatureMS5837();
 float depthMS5837();
 float altitudeMS5837();
@@ -107,6 +113,8 @@ float sensorTemp2; // precision .01, accuracy 1
 // Actual sensors
 FuelGauge fuel;
 AssetTracker realGPS = AssetTracker();
+
+RAW_DEPTH lastDepth;
 
 void setup() {
     // Safety
@@ -180,7 +188,13 @@ void loop() {
                 delay(60000);  // no handshake; assume 1 minute is enough time
                 RGB.color(0, 0, 255);
                 diveAppend("");
-                delay(60000);  // no handshake; assume 1 minute is enough time
+
+		// safe to repeat Append, so do!
+                delay(300000);  // no handshake; assume 5 minutes is enough time
+                RGB.color(255, 0, 0);
+                diveAppend("");
+
+                delay(300000);  // no handshake; assume 5 minutes is enough time
                 diveDone("");
                 RGB.control(false);
             }
@@ -440,17 +454,22 @@ bool doSample() {
     if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
         return false;
     }
-    int depth = readDepthSensor();
+
+    // sample 8 bytes of raw depth data at half temporal frequency
+    //  (store in depth+temp1, swapping between data1 and data2)
+    int depth;
+    if (diveInfo.dataCount % 2 == 0) {
+        lastDepth = readDepth();
+        depth = lastDepth.data1;
+    } else {
+        depth = lastDepth.data2;
+    }
+
     int temp1 = (int)((readTemp1() + 50) * 200);
     int temp2 = (int)((readTemp1() + 50) * 200);
-    /*
-    sprintf(diveInfo.diveData,"%s%c%c%c%c%c%c", diveInfo.diveData,
-        depth%256, (depth>>8)%256,
-        temp1%256, (temp1>>8)%256,
-        temp2%256, (temp2>>8)%256);
-    */
+
     sprintf(diveInfo.diveData[diveInfo.dataCount].depth,"%c%c", depth%256, (depth>>8)%256);
-    sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", temp1%256, (temp1>>8)%256);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", (depth>>16)%256, (depth>>24)%256);
     sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);
     diveInfo.dataCount++;
     return true;
@@ -834,7 +853,7 @@ uint8_t crc4(uint16_t n_prom[]) {
 	return n_rem ^ 0x00;
 }
 
-void readDepth() {
+RAW_DEPTH readDepth() {
   uint32_t data1, data2;
 
 	// Request D1 conversion
@@ -873,6 +892,7 @@ void readDepth() {
 	data2 = (data2 << 8) | Wire.read();
 
   calculateDepth(data1, data2);
+  return RAW_DEPTH{data1, data2};
 }
 
 void calculateDepth(uint32_t data1, uint32_t data2) {

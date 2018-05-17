@@ -43,7 +43,6 @@ float calculate(uint32_t data);
 #define MS5837_CONVERT_D2_8192    0x5A
 
 int initPressureSensor();
-void readDepth();
 float temperatureMS5837();
 float depthMS5837();
 float altitudeMS5837();
@@ -108,108 +107,6 @@ float sensorTemp2; // precision .01, accuracy 1
 FuelGauge fuel;
 AssetTracker realGPS = AssetTracker();
 
-void setup() {
-    // Safety
-    diveInfo.diveData = NULL;
-
-    // Functions for console control
-    //Particle.function("write",writeToggle);
-    Particle.function("diveCreate",diveCreate);
-    Particle.function("diveAppend",diveAppend);
-    Particle.function("diveDone",diveDone);
-
-    Particle.function("readAllRaw",readAllRaw);
-    Particle.function("scanI2C",scanI2C);
-
-    Particle.function("mockToggle",mockToggle);
-    Particle.function("mockGPS",mockGPS);
-    Particle.function("mockDepth",mockDepth);
-    Particle.function("mockTemp",mockTemp);
-    Particle.function("mockSamples",addSamples);
-    Particle.function("mockStart",mockStart);
-    Particle.function("mockEnd",mockEnd);
-
-    Particle.function("freeMem",freeMem);
-    Particle.function("readStatus",readStatus);
-    Particle.function("readAll",readAll);
-    Particle.function("diveDump",diveDump);
-
-    randomSeed(analogRead(0));
-
-    // Set up mocks
-    useMocks = false;
-    sensorDepth = 0;
-    sensorTemp1 = 0;
-    sensorTemp2 = 0;
-
-	// Sensor setup code
-    Wire.begin();
-    Serial.begin();
-    realGPS.begin();
-    realGPS.gpsOn();  // gps on but at rest is fairly low power draw
-
-    Serial.println("Starting pressure sensor...");
-    initPressureSensor();
-}
-
-void loop() {
-    realGPS.updateGPS();    // without high-frequency pokes, GPS chip never locks.
-    unsigned long loopStart = millis();
-    if (loopStart - lastLoopMillis >= loopDelay) {
-        lastLoopMillis = loopStart;
-
-        if (readDepthSensor() >= 10) {
-	    if (diveActive()) {
-                doSample();
-                if ((diveInfo.dataCount % 5) == 0) {
-                    RGB.color(0, 255, 0);
-                } else {
-                    RGB.color(255, 0, 255);
-                }
-            } else {
-                diveStart();
-                RGB.control(true);
-                RGB.color(255, 0, 255);
-            }
-        } else {
-            if (diveActive()) {
-                diveEnd();
-                RGB.color(255, 0, 0);
-                // Simple upload, no handshake or verification
-                diveCreate("");
-                delay(60000);  // no handshake; assume 1 minute is enough time
-                RGB.color(0, 0, 255);
-                diveAppend("");
-                delay(60000);  // no handshake; assume 1 minute is enough time
-                diveDone("");
-                RGB.control(false);
-            }
-        }
-
-        if (writeLogs && (loopStart - lastLogMillis >= logDelay)) {
-            // Sensor readers
-            Serial.println("Reading sensor...");
-            readDepth();
-
-            Serial.printf("Temp: %f\n",temperatureMS5837());
-            Serial.printf("Depth: %f\n",depthMS5837());
-            Serial.printf("Altitude: %f\n",altitudeMS5837());
-
-            lastLogMillis = loopStart;
-
-            char buffer[255];
-            sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, lastLogMillis, System.freeMemory(), fuel.getSoC(), fuel.getVCell());
-
-            Particle.publish("test-hermes2", buffer);
-            logCount++;
-
-            if (logCount >= maxLogs) {
-                writeLogs = false;
-            }
-        }
-    }
-}
-
 int writeToggle(String command) {
     if (command=="on") {
         writeLogs = true;
@@ -268,7 +165,6 @@ int scanI2C(String command) {
 }
 
 int readAllRaw(String command) {
-    readDepth();
     realGPS.updateGPS();
     char buffer[255];
     sprintf(buffer, "%d %s real: %d %f (%f %f) ; mock: %d %f %f (%f %f)",
@@ -317,7 +213,6 @@ int readDepthSensor() {
         // TODO: get the error out through the sensor read
         Wire.beginTransmission(MS5837_ADDR);
         if (Wire.endTransmission() == 0) {
-            readDepth();
             return depthMS5837();
         } else {
             // failed to find sensor
@@ -341,7 +236,6 @@ float readTemp1() {
         // TODO: get the error out through the sensor read
         Wire.beginTransmission(TSYS01_ADDR);
         if (Wire.endTransmission() == 0) {
-            readDepth();
             return temperatureMS5837();
         } else {
             // failed to find sensor
@@ -359,7 +253,6 @@ float readTemp2() {
         // TODO: get the error out through the sensor read
         Wire.beginTransmission(TSYS01_ADDR);
         if (Wire.endTransmission() == 0) {
-            readDepth();
             return temperatureMS5837();
         } else {
             // failed to find sensor
@@ -759,10 +652,11 @@ float calculate(uint32_t data) {
   return temp;
 }
 
-//----------------------------------------
-// COLLAPSE ms5837.ino
-//----------------------------------------
-//#include "ms5837.h"
+
+/////////
+// MS5837
+/////////
+
 #include "math.h"
 
 float fluidDensity = 1029;
@@ -836,11 +730,11 @@ uint8_t crc4(uint16_t n_prom[]) {
 
 // really need to not use global variables but meh
 
-uint32_t rawMSTemp
-uint32_t rawMSPres
-int msTemp
-int deltaTemp
-int msPresure
+uint32_t rawMSTemp;
+uint32_t rawMSPres;
+int msTemp;
+int deltaTemp;
+int msPresure;
 
 void getRawValues() {
 
@@ -894,11 +788,13 @@ void getMS5837Pressure(){
 }
 
 float pressureMS5837(float conversion) {
-	return pressure*conversion;
+  getMS5837Pressure();
+	return msPresure*conversion;
 }
 
 float temperatureMS5837() {
-	return temperature/100.0f;
+  getMS5837Temp();
+	return msTemp/100.0f;
 }
 
 float depthMS5837() {
@@ -907,4 +803,110 @@ float depthMS5837() {
 
 float altitudeMS5837() {
 	return (1-pow((pressureMS5837(1.0f)/1013.25),0.190284))*145366.45*.3048;
+}
+
+
+////////
+// MAIN
+////////
+
+void setup() {
+    // Safety
+    diveInfo.diveData = NULL;
+
+    // Functions for console control
+    //Particle.function("write",writeToggle);
+    Particle.function("diveCreate",diveCreate);
+    Particle.function("diveAppend",diveAppend);
+    Particle.function("diveDone",diveDone);
+
+    Particle.function("readAllRaw",readAllRaw);
+    Particle.function("scanI2C",scanI2C);
+
+    Particle.function("mockToggle",mockToggle);
+    Particle.function("mockGPS",mockGPS);
+    Particle.function("mockDepth",mockDepth);
+    Particle.function("mockTemp",mockTemp);
+    Particle.function("mockSamples",addSamples);
+    Particle.function("mockStart",mockStart);
+    Particle.function("mockEnd",mockEnd);
+
+    Particle.function("freeMem",freeMem);
+    Particle.function("readStatus",readStatus);
+    Particle.function("readAll",readAll);
+    Particle.function("diveDump",diveDump);
+
+    randomSeed(analogRead(0));
+
+    // Set up mocks
+    useMocks = false;
+    sensorDepth = 0;
+    sensorTemp1 = 0;
+    sensorTemp2 = 0;
+
+	// Sensor setup code
+    Wire.begin();
+    Serial.begin();
+    realGPS.begin();
+    realGPS.gpsOn();  // gps on but at rest is fairly low power draw
+
+    Serial.println("Starting pressure sensor...");
+    initPressureSensor();
+}
+
+void loop() {
+    realGPS.updateGPS();    // without high-frequency pokes, GPS chip never locks.
+    unsigned long loopStart = millis();
+    if (loopStart - lastLoopMillis >= loopDelay) {
+        lastLoopMillis = loopStart;
+
+        if (readDepthSensor() >= 10) {
+	    if (diveActive()) {
+                doSample();
+                if ((diveInfo.dataCount % 5) == 0) {
+                    RGB.color(0, 255, 0);
+                } else {
+                    RGB.color(255, 0, 255);
+                }
+            } else {
+                diveStart();
+                RGB.control(true);
+                RGB.color(255, 0, 255);
+            }
+        } else {
+            if (diveActive()) {
+                diveEnd();
+                RGB.color(255, 0, 0);
+                // Simple upload, no handshake or verification
+                diveCreate("");
+                delay(60000);  // no handshake; assume 1 minute is enough time
+                RGB.color(0, 0, 255);
+                diveAppend("");
+                delay(60000);  // no handshake; assume 1 minute is enough time
+                diveDone("");
+                RGB.control(false);
+            }
+        }
+
+        if (writeLogs && (loopStart - lastLogMillis >= logDelay)) {
+            // Sensor readers
+            Serial.println("Reading sensor...");
+
+            Serial.printf("Temp: %f\n",temperatureMS5837());
+            Serial.printf("Depth: %f\n",depthMS5837());
+            Serial.printf("Altitude: %f\n",altitudeMS5837());
+
+            lastLogMillis = loopStart;
+
+            char buffer[255];
+            sprintf(buffer, "%d @%d FM: %d Bat: %f = %f", logCount, lastLogMillis, System.freeMemory(), fuel.getSoC(), fuel.getVCell());
+
+            Particle.publish("test-hermes2", buffer);
+            logCount++;
+
+            if (logCount >= maxLogs) {
+                writeLogs = false;
+            }
+        }
+    }
 }

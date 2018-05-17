@@ -205,7 +205,7 @@ int mockDepth(String command) {
 }
 
 int readDepthSensor() {
-    return sensorDepth + random(-5,6);
+    // remove always-mock shim
     if (useMocks) {
         // drift 5 cm
         return sensorDepth + random(-5,6);
@@ -860,7 +860,8 @@ void loop() {
     if (loopStart - lastLoopMillis >= loopDelay) {
         lastLoopMillis = loopStart;
 
-        if (readDepthSensor() >= 10) {
+	// still control dive via mocked depth
+        if (sensorDepth >= 10) {
 	    if (diveActive()) {
                 doSample();
                 if ((diveInfo.dataCount % 5) == 0) {

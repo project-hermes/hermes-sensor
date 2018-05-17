@@ -135,7 +135,7 @@ void setup() {
     Particle.function("diveDump",diveDump);
 
     randomSeed(analogRead(0));
-    
+
     // Set up mocks
     useMocks = false;
     sensorDepth = 0;
@@ -157,7 +157,7 @@ void loop() {
     unsigned long loopStart = millis();
     if (loopStart - lastLoopMillis >= loopDelay) {
         lastLoopMillis = loopStart;
-	
+
         if (readDepthSensor() >= 10) {
 	    if (diveActive()) {
                 doSample();
@@ -235,7 +235,7 @@ int scanI2C(String command) {
     for(address = 1; address < 127; address++ ){
         Wire.beginTransmission(address);
         error = Wire.endTransmission();
-        
+
         if (error == 0){
             sprintf(buffer+strlen(buffer), " %d", address);
             Serial.print("I2C device found at address 0x");
@@ -244,7 +244,7 @@ int scanI2C(String command) {
             }
             Serial.print(address,HEX);
             Serial.println("  !");
-            
+
             nDevices++;
         } else if (error==4){
             sprintf(errBuffer+strlen(errBuffer), " %d", address);
@@ -260,7 +260,7 @@ int scanI2C(String command) {
     } else {
         Serial.println("done\n");
     }
-    
+
     sprintf(buffer+strlen(buffer), " =%d", nDevices);
     Particle.publish("test-hermes2", buffer);
     Particle.publish("test-hermes2", errBuffer);
@@ -271,9 +271,9 @@ int readAllRaw(String command) {
     readDepth();
     realGPS.updateGPS();
     char buffer[255];
-    sprintf(buffer, "%d %s real: %d %f (%f %f) ; mock: %d %f %f (%f %f)", 
-        diveInfo.diveId, (useMocks?"T":"F"), 
-        depthMS5837(), temperatureMS5837(), realGPS.readLatDeg(), realGPS.readLonDeg(), 
+    sprintf(buffer, "%d %s real: %d %f (%f %f) ; mock: %d %f %f (%f %f)",
+        diveInfo.diveId, (useMocks?"T":"F"),
+        depthMS5837(), temperatureMS5837(), realGPS.readLatDeg(), realGPS.readLonDeg(),
         sensorDepth, sensorTemp1, sensorTemp2, sensorGPS.latitude, sensorGPS.longitude);
     Particle.publish("test-hermes2", buffer);
     sprintf(buffer, "raw GPS: %s", realGPS.preNMEA());
@@ -704,7 +704,7 @@ Z85_decode (char *string)
 //#include "tsys01.h"
 #include "math.h"
 
-uint16_t calibrationValue[8];
+uint16_t tsCalibrationValue[8];
 
 void calibrate(){
 	// Reset the TSYS01, per datasheet
@@ -721,7 +721,7 @@ void calibrate(){
 		Wire.endTransmission();
 
 		Wire.requestFrom(TSYS01_ADDR,2);
-		calibrationValue[i] = (Wire.read() << 8) | Wire.read();
+		tsCalibrationValue[i] = (Wire.read() << 8) | Wire.read();
 	}
 }
 
@@ -750,11 +750,11 @@ float readTsysTemperature() {
 float calculate(uint32_t data) {
 	uint32_t adc = data/256;
 
-  float temp = (-2) * float(calibrationValue[1]) / 1000000000000000000000.0f * pow(adc,4) +
-    4 * float(calibrationValue[2]) / 10000000000000000.0f * pow(adc,3) +
-    (-2) * float(calibrationValue[3]) / 100000000000.0f * pow(adc,2) +
-      1 * float(calibrationValue[4]) / 1000000.0f * adc +
-    (-1.5) * float(calibrationValue[5]) / 100 ;
+  float temp = (-2) * float(tsCalibrationValue[1]) / 1000000000000000000000.0f * pow(adc,4) +
+    4 * float(tsCalibrationValue[2]) / 10000000000000000.0f * pow(adc,3) +
+    (-2) * float(tsCalibrationValue[3]) / 100000000000.0f * pow(adc,2) +
+      1 * float(tsCalibrationValue[4]) / 1000000.0f * adc +
+    (-1.5) * float(tsCalibrationValue[5]) / 100 ;
 
   return temp;
 }
@@ -766,7 +766,7 @@ float calculate(uint32_t data) {
 #include "math.h"
 
 float fluidDensity = 1029;
-//uint16_t calibrationValue[8];
+uint16_t msCalibrationValue[8];
 int32_t temperature;
 int32_t pressure;
 
@@ -795,12 +795,12 @@ int initPressureSensor(){
 		Wire.endTransmission();
 
 		Wire.requestFrom(MS5837_ADDR,2);
-		calibrationValue[i] = (Wire.read() << 8) | Wire.read();
+		msCalibrationValue[i] = (Wire.read() << 8) | Wire.read();
 	}
 
   // Verify that data is correct with CRC
-	uint8_t crcRead = calibrationValue[0] >> 12;
-	uint8_t crcCalculated = crc4(calibrationValue);
+	uint8_t crcRead = msCalibrationValue[0] >> 12;
+	uint8_t crcCalculated = crc4(msCalibrationValue);
 	if ( crcCalculated != crcRead ) {
 		return -1;
 	}
@@ -834,10 +834,17 @@ uint8_t crc4(uint16_t n_prom[]) {
 	return n_rem ^ 0x00;
 }
 
-void readDepth() {
-  uint32_t data1, data2;
+// really need to not use global variables but meh
 
-	// Request D1 conversion
+uint32_t rawMSTemp
+uint32_t rawMSPres
+int msTemp
+int deltaTemp
+int msPresure
+
+void getRawValues() {
+
+	// Request Raw Pressure conversion
 	Wire.beginTransmission(MS5837_ADDR);
 	Wire.write(MS5837_CONVERT_D1_8192);
 	Wire.endTransmission();
@@ -850,12 +857,12 @@ void readDepth() {
 	Wire.endTransmission();
 
  	Wire.requestFrom(MS5837_ADDR,3);
-	data1 = 0;
-	data1 = Wire.read();
-	data1 = (data1 << 8) | Wire.read();
-	data1 = (data1 << 8) | Wire.read();
+	rawMSPres = 0;
+	rawMSPres = Wire.read();
+	rawMSPres = (rawMSPres << 8) | Wire.read();
+	rawMSPres = (rawMSPres << 8) | Wire.read();
 
-	// Request D2 conversion
+	// Request Raw Temperature conversion
 	Wire.beginTransmission(MS5837_ADDR);
 	Wire.write(MS5837_CONVERT_D2_8192);
 	Wire.endTransmission();
@@ -867,77 +874,23 @@ void readDepth() {
 	Wire.endTransmission();
 
 	Wire.requestFrom(MS5837_ADDR,3);
-	data2 = 0;
-	data2 = Wire.read();
-	data2 = (data2 << 8) | Wire.read();
-	data2 = (data2 << 8) | Wire.read();
-
-  calculateDepth(data1, data2);
+	rawMSTemp = 0;
+	rawMSTemp = Wire.read();
+	rawMSTemp = (rawMSTemp << 8) | Wire.read();
+	rawMSTemp = (rawMSTemp << 8) | Wire.read();
 }
 
-void calculateDepth(uint32_t data1, uint32_t data2) {
-	// Given C1-C6 and D1, D2, calculated temperature and pressure
-	// Do conversion first and then second order temp compensation
+void getMS5837Temp(){
+  getRawValues();
+  deltaTemp = rawMSTemp - msCalibrationValue[4] * pow(2,8);
+  msTemp = 2000 + deltaTemp * msCalibrationValue[5] / pow(2,23);
+}
 
-	int32_t dT = 0;
-	int64_t SENS = 0;
-	int64_t OFF = 0;
-	int32_t SENSi = 0;
-	int32_t OFFi = 0;
-	int32_t Ti = 0;
-	int64_t OFF2 = 0;
-	int64_t SENS2 = 0;
-
-	// Terms called
-	dT = data2-uint32_t(calibrationValue[5])*256l;
-	if ( _model == MS5837_02BA ) {
-		SENS = int64_t(calibrationValue[1])*65536l+(int64_t(calibrationValue[3])*dT)/128l;
-		OFF = int64_t(calibrationValue[2])*131072l+(int64_t(calibrationValue[4])*dT)/64l;
-		pressure = (data1*SENS/(2097152l)-OFF)/(32768l);
-	} else {
-		SENS = int64_t(calibrationValue[1])*32768l+(int64_t(calibrationValue[3])*dT)/256l;
-		OFF = int64_t(calibrationValue[2])*65536l+(int64_t(calibrationValue[4])*dT)/128l;
-		pressure = (data1*SENS/(2097152l)-OFF)/(8192l);
-	}
-
-	// Temp conversion
-	temperature = 2000l+int64_t(dT)*calibrationValue[6]/8388608LL;
-
-	//Second order compensation
-	if ( _model == MS5837_02BA ) {
-		if((temperature/100)<20){         //Low temp
-			Serial.println("here");
-			Ti = (11*int64_t(dT)*int64_t(dT))/(34359738368LL);
-			OFFi = (31*(temperature-2000)*(temperature-2000))/8;
-			SENSi = (63*(temperature-2000)*(temperature-2000))/32;
-		}
-	} else {
-		if((temperature/100)<20){         //Low temp
-			Ti = (3*int64_t(dT)*int64_t(dT))/(8589934592LL);
-			OFFi = (3*(temperature-2000)*(temperature-2000))/2;
-			SENSi = (5*(temperature-2000)*(temperature-2000))/8;
-			if((temperature/100)<-15){    //Very low temp
-				OFFi = OFFi+7*(temperature+1500l)*(temperature+1500l);
-				SENSi = SENSi+4*(temperature+1500l)*(temperature+1500l);
-			}
-		}
-		else if((temperature/100)>=20){    //High temp
-			Ti = 2*(dT*dT)/(137438953472LL);
-			OFFi = (1*(temperature-2000)*(temperature-2000))/16;
-			SENSi = 0;
-		}
-	}
-
-	OFF2 = OFF-OFFi;           //Calculate pressure and temp second order
-	SENS2 = SENS-SENSi;
-
-	if ( _model == MS5837_02BA ) {
-		temperature = (temperature-Ti);
-		pressure = (((data1*SENS2)/2097152l-OFF2)/32768l)/100;
-	} else {
-		temperature = (temperature-Ti);
-		pressure = (((data1*SENS2)/2097152l-OFF2)/8192l)/10;
-	}
+void getMS5837Pressure(){
+  getMS5837Temp();
+  float offset = msCalibrationValue[1] * pow(2,16) + (msCalibrationValue[3]*deltaTemp)/pow(2,7);
+  float sensitivity = msCalibrationValue[0] * pow(2,15) + (msCalibrationValue[2]*deltaTemp)/pow(2,8);
+  msPresure = (rawMSPres * sensitivity / pow(2,21) - offset)/pow(2,13);
 }
 
 float pressureMS5837(float conversion) {
@@ -953,5 +906,5 @@ float depthMS5837() {
 }
 
 float altitudeMS5837() {
-	return (1-pow((pressureMS5837(1.0f)/1013.25),.190284))*145366.45*.3048;
+	return (1-pow((pressureMS5837(1.0f)/1013.25),0.190284))*145366.45*.3048;
 }

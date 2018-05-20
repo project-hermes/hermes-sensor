@@ -210,7 +210,7 @@ int readDepthSensor() {
         // drift 5 cm
         return sensorDepth + random(-5,6);
     } else {
-        return pressureMS5837();
+        return depthMS5837();
     }
 }
 

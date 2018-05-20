@@ -43,9 +43,9 @@ float calculate(uint32_t data);
 #define MS5837_CONVERT_D2_8192    0x5A
 
 int initPressureSensor();
-float temperatureMS5837();
-float depthMS5837();
-float altitudeMS5837();
+double temperatureMS5837();
+double depthMS5837();
+double altitudeMS5837();
 
 // utility functions
 void calculateDepth(uint32_t data1, uint32_t data2);
@@ -168,9 +168,10 @@ int scanI2C(String command) {
 int readAllRaw(String command) {
     realGPS.updateGPS();
     char buffer[255];
-    sprintf(buffer, "%d %s real: %d %f (%f %f) ; mock: %d %f %f (%f %f)",
+    sprintf(buffer, "%d %s real: %d %f %f (%f %f) ; mock: %d %f %f (%f %f)",
         diveInfo.diveId, (useMocks?"T":"F"),
-        depthMS5837(), temperatureMS5837(), realGPS.readLatDeg(), realGPS.readLonDeg(),
+        (int)depthMS5837(), readTsysTemperature(), temperatureMS5837(),
+        realGPS.readLatDeg(), realGPS.readLonDeg(),
         sensorDepth, sensorTemp1, sensorTemp2, sensorGPS.latitude, sensorGPS.longitude);
     Particle.publish("test-hermes2", buffer);
     sprintf(buffer, "raw GPS: %s", realGPS.preNMEA());
@@ -206,12 +207,13 @@ int mockDepth(String command) {
 }
 
 int readDepthSensor() {
-    // remove always-mock shim
+    // TODO: remove always-mock shim for manual dive control
+    return sensorDepth;
     if (useMocks) {
         // drift 5 cm
         return sensorDepth + random(-5,6);
     } else {
-        return depthMS5837();
+        return (int)depthMS5837();
     }
 }
 
@@ -222,15 +224,15 @@ int mockTemp(String command) {
     return (int)sensorTemp1;
 }
 
-float readTemp2() {
+float readTemp1() {
     if (useMocks) {
         // drift .1 degree
         return sensorTemp1 + ((float)random(-10,11) / 100.0);
     } else {
         // TODO: get the error out through the sensor read
-        Wire.beginTransmission(MS5837_ADDR);
+        Wire.beginTransmission(TSYS01_ADDR);
         if (Wire.endTransmission() == 0) {
-            return temperatureMS5837();
+            return readTsysTemperature();
         } else {
             // failed to find sensor
             return 0;
@@ -238,16 +240,16 @@ float readTemp2() {
     }
 }
 
-float readTemp1() {
+float readTemp2() {
     if (useMocks) {
         // drift 1 degree
         return sensorTemp2 + ((float)random(-100,101) / 100.0);
     } else {
         // initially use only one sensor
         // TODO: get the error out through the sensor read
-        Wire.beginTransmission(TSYS01_ADDR);
+        Wire.beginTransmission(MS5837_ADDR);
         if (Wire.endTransmission() == 0) {
-            return readTsysTemperature();
+            return temperatureMS5837();
         } else {
             // failed to find sensor
             return 0;
@@ -327,7 +329,10 @@ bool doSample() {
     if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
         return false;
     }
-    int depth = readDepthSensor();
+
+    // TODO: clean up temporary shift for -500 error
+    //int depth = readDepthSensor() + 1000;
+    int depth = (int)depthMS5837() + 1000;
     int temp1 = (int)((readTemp1() + 50) * 200);
     int temp2 = (int)((readTemp1() + 50) * 200);
     /*
@@ -396,7 +401,7 @@ int diveAppend(String command) {
         int thisCount;
 
         if (command.length() > 0) {
-            startSample = command.toInt();
+            int startSample = command.toInt();
             toSend -= startSample;
             firstTime += startSample;
             dataIdx += startSample;
@@ -416,7 +421,7 @@ int diveAppend(String command) {
             char *z85out = Z85_encode((byte *)buffer, 7+lastDataLen+pad);
             Particle.publish("diveAppend", z85out);
             free(z85out);
-            sleep(appendDelay);
+            delay(appendDelay);
 
             toSend -= dataPerPublish;
             firstTime += dataPerPublish;
@@ -425,7 +430,6 @@ int diveAppend(String command) {
         }
 
     bool formatGood = (buffer[0] == dataFormat);
-    int firstTime = diveInfo.timeStart;
     sprintf(buffer, "action: Append, format: %s, packets: %d, lastData: %d", (formatGood?"good":"bad"), sendCount, lastDataLen);
     Particle.publish("test-hermes2", buffer);
     return (formatGood?sendCount:0);
@@ -804,7 +808,7 @@ double temperatureMS5837() {
 
 // returns depth in cm
 double depthMS5837() {
-	return (pressureMS5837(100.0)-101300)/(fluidDensity*9.80665)*1000;
+	return (pressureMS5837(100.0)-101300)/(fluidDensity*9.80665)*100;
 }
 
 // dont use this, idk what it does
@@ -888,10 +892,10 @@ void loop() {
                 RGB.color(255, 0, 0);
                 // Simple upload, no handshake or verification
                 diveCreate("");
-                delay(60000);  // no handshake; assume 1 minute is enough time
+                delay(300000);  // no handshake; assume 5 minutes is enough time
                 RGB.color(0, 0, 255);
                 diveAppend("");
-                delay(60000);  // no handshake; assume 1 minute is enough time
+                delay(300000);  // no handshake; assume 5 minutes is enough time
                 diveDone("");
                 RGB.control(false);
             }

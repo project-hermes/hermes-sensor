@@ -64,6 +64,7 @@ SerialLogHandler logHandler;
 // loop control
 const int loopDelay = 1000;	// 1 second
 const int logDelay = 10000; // 10 seconds
+const int appendDelay = 1100; // 1.1 second
 unsigned long lastLoopMillis = 0;
 unsigned long lastLogMillis = 0;
 
@@ -388,14 +389,19 @@ int diveAppend(String command) {
     char buffer[255];
     int sendCount = 0;
     int lastDataLen = 0;
-    if (command.length() > 0) {
-        // return the request if not null
-        command.toCharArray(buffer, 255);
-    } else {
+
         int toSend = diveInfo.dataCount;
         int firstTime = diveInfo.timeStart;
         int dataIdx = 0;
         int thisCount;
+
+        if (command.length() > 0) {
+            startSample = command.toInt();
+            toSend -= startSample;
+            firstTime += startSample;
+            dataIdx += startSample;
+        }
+
         while (toSend > 0) {
             thisCount = min(toSend, dataPerPublish);
             sprintf(buffer, "%c%c%c%c%c%c%c", dataFormat, diveInfo.diveId,
@@ -410,13 +416,13 @@ int diveAppend(String command) {
             char *z85out = Z85_encode((byte *)buffer, 7+lastDataLen+pad);
             Particle.publish("diveAppend", z85out);
             free(z85out);
+            sleep(appendDelay);
 
             toSend -= dataPerPublish;
             firstTime += dataPerPublish;
             dataIdx += dataPerPublish;
             sendCount++;
         }
-    }
 
     bool formatGood = (buffer[0] == dataFormat);
     int firstTime = diveInfo.timeStart;

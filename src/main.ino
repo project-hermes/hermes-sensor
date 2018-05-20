@@ -52,7 +52,7 @@ void calculateDepth(uint32_t data1, uint32_t data2);
 uint8_t crc4(uint16_t n_prom[]);
 
 #endif
-
+SerialLogHandler logHandler;
 //----------------------------------------
 // COLLAPSE main.ino
 //----------------------------------------
@@ -210,14 +210,7 @@ int readDepthSensor() {
         // drift 5 cm
         return sensorDepth + random(-5,6);
     } else {
-        // TODO: get the error out through the sensor read
-        Wire.beginTransmission(MS5837_ADDR);
-        if (Wire.endTransmission() == 0) {
-            return depthMS5837();
-        } else {
-            // failed to find sensor
-            return 0;
-        }
+        return pressureMS5837();
     }
 }
 
@@ -228,13 +221,13 @@ int mockTemp(String command) {
     return (int)sensorTemp1;
 }
 
-float readTemp1() {
+float readTemp2() {
     if (useMocks) {
         // drift .1 degree
         return sensorTemp1 + ((float)random(-10,11) / 100.0);
     } else {
         // TODO: get the error out through the sensor read
-        Wire.beginTransmission(TSYS01_ADDR);
+        Wire.beginTransmission(MS5837_ADDR);
         if (Wire.endTransmission() == 0) {
             return temperatureMS5837();
         } else {
@@ -244,7 +237,7 @@ float readTemp1() {
     }
 }
 
-float readTemp2() {
+float readTemp1() {
     if (useMocks) {
         // drift 1 degree
         return sensorTemp2 + ((float)random(-100,101) / 100.0);
@@ -253,7 +246,7 @@ float readTemp2() {
         // TODO: get the error out through the sensor read
         Wire.beginTransmission(TSYS01_ADDR);
         if (Wire.endTransmission() == 0) {
-            return temperatureMS5837();
+            return readTsysTemperature();
         } else {
             // failed to find sensor
             return 0;
@@ -673,6 +666,8 @@ const uint8_t MS5837_02BA = 1;
 
 uint8_t _model = MS5837_30BA;
 
+
+// must be called to set up sensor, should be called at setup
 int initPressureSensor(){
   // Reset the MS5837, per datasheet
 	Wire.beginTransmission(MS5837_ADDR);
@@ -732,9 +727,8 @@ uint8_t crc4(uint16_t n_prom[]) {
 
 uint32_t rawMSTemp;
 uint32_t rawMSPres;
-int msTemp;
-int deltaTemp;
-int msPresure;
+long msTemp;
+long deltaTemp;
 
 void getRawValues() {
 
@@ -774,35 +768,42 @@ void getRawValues() {
 	rawMSTemp = (rawMSTemp << 8) | Wire.read();
 }
 
-void getMS5837Temp(){
+// gets temp in mili c
+long getMS5837Temp(){
   getRawValues();
-  deltaTemp = rawMSTemp - msCalibrationValue[4] * pow(2,8);
-  msTemp = 2000 + deltaTemp * msCalibrationValue[5] / pow(2,23);
+  deltaTemp = rawMSTemp - msCalibrationValue[5] * pow(2,8);
+  msTemp = 2000 + deltaTemp * msCalibrationValue[6] / pow(2,23);
+  return msTemp;
 }
 
-void getMS5837Pressure(){
+// gets presure in mbar
+long getMS5837Pressure(){
   getMS5837Temp();
-  float offset = msCalibrationValue[1] * pow(2,16) + (msCalibrationValue[3]*deltaTemp)/pow(2,7);
-  float sensitivity = msCalibrationValue[0] * pow(2,15) + (msCalibrationValue[2]*deltaTemp)/pow(2,8);
-  msPresure = (rawMSPres * sensitivity / pow(2,21) - offset)/pow(2,13);
+  int64_t offset = msCalibrationValue[2] * pow(2,16) + (msCalibrationValue[4]*deltaTemp)/pow(2,7);
+  int64_t sensitivity = msCalibrationValue[1] * pow(2,15) + (msCalibrationValue[3]*deltaTemp)/pow(2,8);
+  long msPresure = ((rawMSPres * sensitivity / pow(2,21) - offset)/pow(2,13))/10;
+  return msPresure;
 }
 
-float pressureMS5837(float conversion) {
-  getMS5837Pressure();
-	return msPresure*conversion;
+
+// returns presure in units ex 100 gives you pascals
+double pressureMS5837(float units) {
+  return getMS5837Pressure()*units;
 }
 
-float temperatureMS5837() {
-  getMS5837Temp();
-	return msTemp/100.0f;
+// returns temperature in c
+double temperatureMS5837() {
+	return getMS5837Temp()/100.0;
 }
 
-float depthMS5837() {
-	return (pressureMS5837(Pa)-101300)/(fluidDensity*9.80665);
+// returns depth in cm
+double depthMS5837() {
+	return (pressureMS5837(100.0)-101300)/(fluidDensity*9.80665)*1000;
 }
 
-float altitudeMS5837() {
-	return (1-pow((pressureMS5837(1.0f)/1013.25),0.190284))*145366.45*.3048;
+// dont use this, idk what it does
+double altitudeMS5837() {
+	return (1-pow((pressureMS5837(100.0)/1013.25),0.190284))*145366.45*.3048;
 }
 
 
@@ -852,6 +853,7 @@ void setup() {
 
     Serial.println("Starting pressure sensor...");
     initPressureSensor();
+    calibrate();
 }
 
 void loop() {

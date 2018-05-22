@@ -42,6 +42,12 @@ float calculate(uint32_t data);
 #define MS5837_CONVERT_D1_8192    0x4A
 #define MS5837_CONVERT_D2_8192    0x5A
 
+// Raw depth storage
+typedef struct RAW_DEPTH {
+    uint32_t data1;
+    uint32_t data2;
+} RAW_DEPTH;
+
 int initPressureSensor();
 double temperatureMS5837();
 double depthMS5837();
@@ -96,6 +102,7 @@ typedef struct DIVE_INFO {
 
 // Data storage
 DIVE_INFO diveInfo;
+RAW_DEPTH lastDepth;
 
 // Mock sensors
 bool useMocks;
@@ -332,18 +339,30 @@ bool doSample() {
 
     // TODO: clean up temporary shift for -500 error
     //int depth = readDepthSensor() + 1000;
-    int depth = (int)depthMS5837() + 1000;
+    //int depth = (int)depthMS5837() + 1000;
     int temp1 = (int)((readTemp1() + 50) * 200);
-    int temp2 = (int)((readTemp1() + 50) * 200);
+    //int temp2 = (int)((readTemp1() + 50) * 200);
     /*
     sprintf(diveInfo.diveData,"%s%c%c%c%c%c%c", diveInfo.diveData,
         depth%256, (depth>>8)%256,
         temp1%256, (temp1>>8)%256,
         temp2%256, (temp2>>8)%256);
     */
+
+    // sample 8 bytes of raw depth data at half temporal frequency
+    //  (store in depth+temp2, swapping between data1 and data2)
+    int depth;
+    if (diveInfo.dataCount % 2 == 0) {
+        depth = (int)depthMS5837() + 1000; // sets lastDepth too
+        depth = lastDepth.data1;
+    } else {
+        depth = lastDepth.data2;
+    }
+
     sprintf(diveInfo.diveData[diveInfo.dataCount].depth,"%c%c", depth%256, (depth>>8)%256);
     sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", temp1%256, (temp1>>8)%256);
-    sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);
+    //sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", (depth>>16)%256, (depth>>24)%256);
     diveInfo.dataCount++;
     return true;
 }
@@ -808,6 +827,7 @@ double temperatureMS5837() {
 
 // returns depth in cm
 double depthMS5837() {
+        lastDepth = RAW_DEPTH{rawMSPres, rawMSTemp};
 	return (pressureMS5837(100.0)-101300)/(fluidDensity*9.80665)*100;
 }
 

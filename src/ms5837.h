@@ -21,7 +21,8 @@ const float bar = 0.001f;
 const float mbar = 1.0f;
 
 float fluidDensity = 1029;
-uint16_t msCalibrationValue[8];
+uint16_t ms5837CalibrationValue[8];
+long deltaTemp;
 
 int initPressureSensor();
 double temperatureMS5837();

@@ -1,36 +1,33 @@
 #include "ms5837.h"
-int32_t temperature;
-int32_t pressure;
-long deltaTemp;
 
 // returns presure in units ex 100 gives you pascals
-double pressureMS5837(float units) {
+double readMS5837Pressure(float units) {
   return getMS5837Pressure()*units;
 }
 
 // returns temperature in c
-double temperatureMS5837() {
+double readMS5837Temperature() {
 	return getMS5837Temp()/100.0;
 }
 
 // returns depth in cm
-double depthMS5837() {
+double readMS5837Depth() {
 	return (pressureMS5837(100.0)-101300)/(fluidDensity*9.80665)*100;
 }
 
 // gets temp in mili c
-long readMS5837Temp(){
+long calculateMS5837Temp(){
   getRawValues();
-  deltaTemp = ms5837Raw.temperature - msCalibrationValue[5] * pow(2,8);
-  return 2000 + deltaTemp * msCalibrationValue[6] / pow(2,23);
+  deltaTemp = ms5837Raw.temperature - ms5837CalibrationValue[5] * pow(2,8);
+  return 2000 + deltaTemp * ms5837CalibrationValue[6] / pow(2,23);
 }
 
 // gets presure in mbar
-long readMS5837Pressure(){
+long calculateMS5837Pressure(){
   getMS5837Temp();
-  int64_t offset = msCalibrationValue[2] * pow(2,16) + (msCalibrationValue[4]*deltaTemp)/pow(2,7);
-  int64_t sensitivity = msCalibrationValue[1] * pow(2,15) + (msCalibrationValue[3]*deltaTemp)/pow(2,8);
-  long msPresure = ((rawMSPres * sensitivity / pow(2,21) - offset)/pow(2,13))/10;
+  int64_t offset = ms5837CalibrationValue[2] * pow(2,16) + (ms5837CalibrationValue[4]*deltaTemp)/pow(2,7);
+  int64_t sensitivity = ms5837CalibrationValue[1] * pow(2,15) + (ms5837CalibrationValue[3]*deltaTemp)/pow(2,8);
+  long msPresure = ((ms5837Raw.pressure * sensitivity / pow(2,21) - offset)/pow(2,13))/10;
   return msPresure;
 }
 
@@ -51,12 +48,12 @@ int initMS5837(){
 		Wire.endTransmission();
 
 		Wire.requestFrom(MS5837_ADDR,2);
-		msCalibrationValue[i] = (Wire.read() << 8) | Wire.read();
+		ms5837CalibrationValue[i] = (Wire.read() << 8) | Wire.read();
 	}
 
   // Verify that data is correct with CRC
-	uint8_t crcRead = msCalibrationValue[0] >> 12;
-	uint8_t crcCalculated = crc4(msCalibrationValue);
+	uint8_t crcRead = ms5837CalibrationValue[0] >> 12;
+	uint8_t crcCalculated = crc4(ms5837CalibrationValue);
 	if ( crcCalculated != crcRead ) {
 		return -1;
 	}
@@ -64,7 +61,7 @@ int initMS5837(){
 	return 0;
 }
 
-int readRawMS5837() {
+int readMS5837Raw() {
 
 	// Request Raw Pressure conversion
 	Wire.beginTransmission(MS5837_ADDR);

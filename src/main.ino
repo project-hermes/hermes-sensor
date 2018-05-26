@@ -58,7 +58,10 @@ void calculateDepth(uint32_t data1, uint32_t data2);
 uint8_t crc4(uint16_t n_prom[]);
 
 #endif
-SerialLogHandler logHandler;
+Serial1LogHandler logHandler;
+Logger msLog("MS5837");
+Logger tsLog("TSYS01");
+Logger mainLog("MainLoop");
 //----------------------------------------
 // COLLAPSE main.ino
 //----------------------------------------
@@ -337,11 +340,20 @@ bool doSample() {
         return false;
     }
 
+    // TODO: use reader once mock shim is removed
+    //int depth = readDepthSensor();  + 1000;
+    int depth = (int)depthMS5837();
+    int temp1 = (int)readTemp1();
+    int temp2 = (int)readTemp1();
+    
+	mainLog.info("%d Sensor Reads: %d %d %d", Time.now(), depth, temp1, temp2);
+
+    // Convert for transmission to firebase
     // TODO: clean up temporary shift for -500 error
-    //int depth = readDepthSensor() + 1000;
-    //int depth = (int)depthMS5837() + 1000;
-    int temp1 = (int)((readTemp1() + 50) * 200);
-    //int temp2 = (int)((readTemp1() + 50) * 200);
+    depth = depth + 1000;
+    temp1 = (temp1 + 50) * 200;
+    temp2 = (temp2 + 50) * 200;
+    
     /*
     sprintf(diveInfo.diveData,"%s%c%c%c%c%c%c", diveInfo.diveData,
         depth%256, (depth>>8)%256,
@@ -349,6 +361,7 @@ bool doSample() {
         temp2%256, (temp2>>8)%256);
     */
 
+    /*
     // sample 8 bytes of raw depth data at half temporal frequency
     //  (store in depth+temp2, swapping between data1 and data2)
     int depth;
@@ -358,12 +371,16 @@ bool doSample() {
     } else {
         depth = lastDepth.data2;
     }
-
+    */
+    
     sprintf(diveInfo.diveData[diveInfo.dataCount].depth,"%c%c", depth%256, (depth>>8)%256);
     sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", temp1%256, (temp1>>8)%256);
-    //sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);
-    sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", (depth>>16)%256, (depth>>24)%256);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);
+    //sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", (depth>>16)%256, (depth>>24)%256);
     diveInfo.dataCount++;
+    
+	mainLog.info("%d Data Point: %u %u %u", Time.now(), depth, temp1, temp2);
+
     return true;
 }
 
@@ -395,6 +412,7 @@ int diveCreate(String command) {
     }
 
     Particle.publish("diveCreate", buffer);
+	mainLog.info("%d diveCreate: %s", Time.now(), buffer);
     return diveInfo.diveId;
 }
 
@@ -439,6 +457,7 @@ int diveAppend(String command) {
             }
             char *z85out = Z85_encode((byte *)buffer, 7+lastDataLen+pad);
             Particle.publish("diveAppend", z85out);
+	        mainLog.info("%d diveAppend: %s", Time.now(), z85out);
             free(z85out);
             delay(appendDelay);
 
@@ -467,6 +486,7 @@ int diveDone(String command) {
     }
 
     Particle.publish("diveDone", buffer);
+	mainLog.info("%d diveDone: %s", Time.now(), buffer);
     return diveInfo.diveId;
 }
 
@@ -637,6 +657,7 @@ void calibrate(){
 
 		Wire.requestFrom(TSYS01_ADDR,2);
 		tsCalibrationValue[i] = (Wire.read() << 8) | Wire.read();
+		tsLog.info("%d Calibration Value %d: %u", Time.now(), i, tsCalibrationValue[i]);
 	}
 }
 
@@ -657,6 +678,8 @@ float readTsysTemperature() {
 	data = Wire.read();
 	data = (data << 8) | Wire.read();
 	data = (data << 8) | Wire.read();
+	
+	tsLog.info("%d RawTemp: %u", Time.now(), data);
 
 	return calculate(data);
 }
@@ -714,12 +737,15 @@ int initPressureSensor(){
 
 		Wire.requestFrom(MS5837_ADDR,2);
 		msCalibrationValue[i] = (Wire.read() << 8) | Wire.read();
+		msLog.info("%d Calibration Value %d: %d",Time.now(),i,msCalibrationValue[i]);
 	}
 
   // Verify that data is correct with CRC
 	uint8_t crcRead = msCalibrationValue[0] >> 12;
 	uint8_t crcCalculated = crc4(msCalibrationValue);
 	if ( crcCalculated != crcRead ) {
+	    msLog.error("%d CRC does not match!!!", Time.now());
+        msLog.error("Got %u but expected %u", crcCalculated, crcRead);
 		return -1;
 	}
 
@@ -795,6 +821,8 @@ void getRawValues() {
 	rawMSTemp = Wire.read();
 	rawMSTemp = (rawMSTemp << 8) | Wire.read();
 	rawMSTemp = (rawMSTemp << 8) | Wire.read();
+	
+	msLog.info("%d RawTemp: %u RawPressure: %u", Time.now(), rawMSTemp, rawMSPres);
 }
 
 // gets temp in mili c
@@ -844,6 +872,9 @@ double altitudeMS5837() {
 void setup() {
     // Safety
     diveInfo.diveData = NULL;
+
+    Log.info("%d System version: %s", Time.now(), (const char*)System.version());
+    Log.trace("%d Device ID: %s",Time.now(), (const char*)System.deviceID());
 
     // Functions for console control
     //Particle.function("write",writeToggle);

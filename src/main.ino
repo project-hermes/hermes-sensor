@@ -207,6 +207,7 @@ GPS_LOC readGPS() {
         return sensorGPS;
     } else {
         realGPS.updateGPS();
+	mainLog.info("%d GPS: %f %f", Time.now(), realGPS.readLatDeg(), realGPS.readLonDeg());
         return GPS_LOC{realGPS.readLatDeg(), realGPS.readLonDeg()};
     }
 }
@@ -336,15 +337,11 @@ int readStatus(String command) {
 }
 
 bool doSample() {
-    if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
-        return false;
-    }
-
     // TODO: use reader once mock shim is removed
     //int depth = readDepthSensor();  + 1000;
     int depth = (int)depthMS5837();
     int temp1 = (int)readTemp1();
-    int temp2 = (int)readTemp1();
+    int temp2 = (int)readTemp2();
     
 	mainLog.info("%d Sensor Reads: %d %d %d", Time.now(), depth, temp1, temp2);
 
@@ -373,6 +370,12 @@ bool doSample() {
     }
     */
     
+    // always read and log, but only record to dive for an hour
+    if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
+	mainLog.info("%d Data Point (skip): %u %u %u", Time.now(), depth, temp1, temp2);
+        return false;
+    }
+
     sprintf(diveInfo.diveData[diveInfo.dataCount].depth,"%c%c", depth%256, (depth>>8)%256);
     sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", temp1%256, (temp1>>8)%256);
     sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);

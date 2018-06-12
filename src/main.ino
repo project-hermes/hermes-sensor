@@ -3,6 +3,9 @@
 //  Copyright (c) 2018 Project Hermes
 //  --------------------------------------------------------------------------
 
+// Manual mode does not seek cell connection before starting; uncomment to use
+//#define USING_MANUAL_MODE
+
 //----------------------------------------
 // COLLAPSE tsys01.h
 //----------------------------------------
@@ -62,6 +65,7 @@ Serial1LogHandler logHandler;
 Logger msLog("MS5837");
 Logger tsLog("TSYS01");
 Logger mainLog("MainLoop");
+
 //----------------------------------------
 // COLLAPSE main.ino
 //----------------------------------------
@@ -104,6 +108,7 @@ typedef struct DIVE_INFO {
 } DIVE_INFO;
 
 // Data storage
+DIVE_DATA lastSample;
 DIVE_INFO diveInfo;
 RAW_DEPTH lastDepth;
 
@@ -117,6 +122,10 @@ float sensorTemp2; // precision .01, accuracy 1
 // Actual sensors
 FuelGauge fuel;
 AssetTracker realGPS = AssetTracker();
+
+#ifdef USING_MANUAL_MODE
+SYSTEM_MODE(MANUAL);
+#endif
 
 int writeToggle(String command) {
     if (command=="on") {
@@ -336,15 +345,15 @@ int readStatus(String command) {
     return diveInfo.dataCount;
 }
 
-bool doSample() {
+void doSample() {
     // TODO: use reader once mock shim is removed
     //int depth = readDepthSensor();  + 1000;
     int depth = (int)depthMS5837();
     int temp1 = (int)readTemp1();
     int temp2 = (int)readTemp2();
     
-	mainLog.info("%d Sensor Reads: %d %d %d", Time.now(), depth, temp1, temp2);
-
+    mainLog.info("%d Sensor Reads: %d %d %d", Time.now(), depth, temp1, temp2);
+    
     // Convert for transmission to firebase
     // TODO: clean up temporary shift for -500 error
     depth = depth + 1000;
@@ -369,23 +378,37 @@ bool doSample() {
         depth = lastDepth.data2;
     }
     */
-    
+
+    sprintf(lastSample.depth,"%c%c", depth%256, (depth>>8)%256);
+    sprintf(lastSample.temp1,"%c%c", temp1%256, (temp1>>8)%256);
+    sprintf(lastSample.temp2,"%c%c", temp2%256, (temp2>>8)%256);
+    //sprintf(lastSample.temp2,"%c%c", (depth>>16)%256, (depth>>24)%256);
+}
+
+bool writeSample() {
     // always read and log, but only record to dive for an hour
     if ( (diveInfo.diveData == NULL) || (diveInfo.dataCount >= 3600) ) {
-	mainLog.info("%d Data Point (skip): %u %u %u", Time.now(), depth, temp1, temp2);
+	mainLog.info("%d Data Point (skip): %u %u %u", Time.now(),
+            lastSample.depth[0]+lastSample.depth[1]*256,
+            lastSample.temp1[0]+lastSample.temp1[1]*256,
+            lastSample.temp2[0]+lastSample.temp2[1]*256);
         return false;
     }
 
-    sprintf(diveInfo.diveData[diveInfo.dataCount].depth,"%c%c", depth%256, (depth>>8)%256);
-    sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", temp1%256, (temp1>>8)%256);
-    sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", temp2%256, (temp2>>8)%256);
-    //sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", (depth>>16)%256, (depth>>24)%256);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].depth,"%c%c", lastSample.depth[0], lastSample.depth[1]);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].temp1,"%c%c", lastSample.temp1[0], lastSample.temp1[1]);
+    sprintf(diveInfo.diveData[diveInfo.dataCount].temp2,"%c%c", lastSample.temp2[0], lastSample.temp2[1]);
     diveInfo.dataCount++;
     
-	mainLog.info("%d Data Point: %u %u %u", Time.now(), depth, temp1, temp2);
-
+    mainLog.info("%d Data Point: %u %u %u", Time.now(),
+        lastSample.depth[0]+lastSample.depth[1]*256,
+        lastSample.temp1[0]+lastSample.temp1[1]*256,
+        lastSample.temp2[0]+lastSample.temp2[1]*256);
+    
     return true;
 }
+
+
 
 int freeMem(String command) {
     return System.freeMemory();
@@ -398,6 +421,7 @@ int addSamples(String command) {
     }
     for (int i = 0; i < sampleCount; i++) {
         doSample();
+        writeSample();
     }
     return sampleCount;
 }
@@ -921,15 +945,20 @@ void setup() {
 }
 
 void loop() {
+    #ifdef USING_MANUAL_MODE
+    // In MANUAL mode, we must call the system loop
+    Particle.process();
+    #endif
+
     realGPS.updateGPS();    // without high-frequency pokes, GPS chip never locks.
     unsigned long loopStart = millis();
     if (loopStart - lastLoopMillis >= loopDelay) {
         lastLoopMillis = loopStart;
 
-	// still control dive via mocked depth
+        doSample();
+        // still control dive via mocked depth
         if (sensorDepth >= 10) {
-	    if (diveActive()) {
-                doSample();
+            if (diveActive()) {
                 if ((diveInfo.dataCount % 5) == 0) {
                     RGB.color(0, 255, 0);
                 } else {
@@ -940,9 +969,13 @@ void loop() {
                 RGB.control(true);
                 RGB.color(255, 0, 255);
             }
+            writeSample();
         } else {
             if (diveActive()) {
                 diveEnd();
+                if (!Particle.connected()) {
+                    Particle.connect();
+                }
                 RGB.color(255, 0, 0);
                 // Simple upload, no handshake or verification
                 diveCreate("");

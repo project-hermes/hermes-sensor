@@ -14,7 +14,6 @@ void setup()
 
 void loop()
 {
-  checkMode();
   if(WiFi.ready()){
     Particle.connect();
   } else if (!Particle.disconnected()){

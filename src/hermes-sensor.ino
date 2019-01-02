@@ -1,3 +1,5 @@
+SYSTEM_MODE(SEMI_AUTOMATIC);
+
 SerialLogHandler logHandler;
 
 String mode = "dev";
@@ -13,6 +15,11 @@ void setup()
 void loop()
 {
   checkMode();
+  if(WiFi.ready()){
+    Particle.connect();
+  } else if (!Particle.disconnected()){
+    Particle.disconnect();
+  }
 }
 
 /*
@@ -22,7 +29,7 @@ void checkMode()
 {
   if (mode == "dev")
   {
-    SYSTEM_MODE(AUTOMATIC);
+    SYSTEM_MODE(SEMI_AUTOMATIC);
     if (!System.updatesEnabled())
     {
       System.enableUpdates();
